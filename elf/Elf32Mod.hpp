@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+// Definitions for modified Elf32 files
+
 // Elf32 data types
 
 typedef uint32_t    Elf32_Addr;
@@ -18,101 +20,29 @@ typedef uint32_t    Elf32_Word;
 // Elf32 header structure
 
 struct Elf32_Ehdr {
-    unsigned char   e_ident[EI_NIDENT];
-    Elf32_Half      e_type;
-    Elf32_Half      e_machine;
-    Elf32_Word      e_version;
     Elf32_Addr      e_entry;
-    Elf32_Off       e_phoff;
     Elf32_Off       e_shoff;
-    Elf32_Word      e_flags;
-    Elf32_Half      e_ehsize;
-    Elf32_Half      e_phentsize;
+    Elf32_Half      e_type;     // Moved because of the alignment
     Elf32_Half      e_phnum;
-    Elf32_Half      e_shentsize;
     Elf32_Half      e_shnum;
     Elf32_Half      e_shstrndx;
 };
 
+// Elf32 header size in bytes
+#define EHDR_SIZE sizeof(Elf32_Ehdr)
+
 
 // Object file types used for Elf32 header member e_type
 
-#define ET_NONE     0           // No file type
 #define ET_REL      1           // Relocatable file
 #define ET_EXEC     2           // Executable file
-#define ET_DYN      3           // Shared object file
-#define ET_CORE     4           // Core file
-#define ET_LOPROC   0xff00      // Processor-specific
-#define ET_HIPROC   0xffff      // Processor-specific
-
-
-// Architecture specifiers used for Elf32 header member e_machine
-// We will only be using EM_NONE, since we will be working with abstract architecture specific to this project
-
-#define EM_NONE         0
-#define EM_M32          1
-#define EM_SPARC        2
-#define EM_386          3
-#define EM_68K          4
-#define EM_88K          5
-#define EM_860          7
-#define EM_MIPS         8
-#define EM_MIPS_RS4_BE  10
-
-
-// Object file versions used for Elf32 header member e_version
-
-#define EV_NONE     0
-#define EV_CURRENT  1
-
-
-// Identification indexes for used for bytes of Elf32 header member e_type
-
-#define EI_MAG0     0
-#define EI_MAG1     1
-#define EI_MAG2     2
-#define EI_MAG3     3
-#define EI_CLASS    4
-#define EI_DATA     5
-#define EI_VERSION  6
-#define EI_PAD      7
-
-
-// ELF object file magic number
-
-#define ELFMAG0     0x7f
-#define ELFMAG1     'E'
-#define ELFMAG2     'L'
-#define ELFMAG3     'F'
-
-
-// File classes used for EI_CLASS byte of e_type
-// Our abstract architecture is 32-bit, so we will only be using ELFCLASS32
-
-#define ELFCLASSNONE    0
-#define ELFCLASS32      1
-#define ELFCLASS64      2
-
-
-// Data encodings for data in object file, used for EI_DATA byte of e_type
-// Our abstract architecture uses little endian, which has nothing to do with data in Elf32 object file, but, because of the consistency
-// we will only be using little endian in ELf32 object files as well
-
-#define ELFDATANONE     0
-#define ELFDATA2LSB     1       // 2's complement, little endian
-#define ELFDATA2MSB     2       // 2's complement, big endian
 
 
 // Special section indexes in section header tabel
-// TODO - Maybe we will ahve to modify these
 
 #define SHN_UNDEF           0
-#define SHN_LORESERVE       0xff00
-#define SHN_LOPROC          0xff00
-#define SHN_HIPROC          0xff1f
-#define SHN_ABS             0xfff1
-#define SHN_COMMON          0xfff2
-#define SHN_HIRESERVE       0xffff
+#define SHN_ABS             1
+#define SHN_COMMON          2
 
 
 // Elf32 section header structure
@@ -126,9 +56,10 @@ struct Elf32_Shdr {
     Elf32_Word      sh_size;
     Elf32_Word      sh_link;
     Elf32_Word      sh_info;
-    Elf32_Word      sh_addralign;
-    Elf32_Word      sh_entsize;
+    //Elf32_Word      sh_addralign;?
 };
+
+#define SHDR_SIZE sizeof(Elf32_Shdr)
 
 
 // Section types used for Elf32 section header member sh_type
@@ -145,16 +76,12 @@ struct Elf32_Shdr {
 #define SHT_REL         9
 #define SHT_SHLIB       10
 #define SHT_DYNSYM      11
-#define SHT_LOPROC      0x70000000
-#define SHT_HIPROC      0x7fffffff
-#define SHT_LOUSER      0x80000000
-#define SHT_HIUSER      0xffffffff
 
 
 // Section header for index 0 in section header table 
 
 Elf32_Shdr SectionHeaderTable_Entry0 = {
-    0, SHT_NULL, 0, 0, 0, 0, SHN_UNDEF, 0, 0, 0
+    0, SHT_NULL, 0, 0, 0, 0, SHN_UNDEF, 0
 };
 
 
@@ -181,7 +108,7 @@ struct Elf32_Sym {
     Elf32_Addr          st_value;
     Elf32_Word          st_size;
     unsigned char       st_info;
-    unsigned char       st_other;
+    unsigned char       st_other; // Wont be used, but will keep it because of the alignment 
     Elf32_Half          st_shndx;
 };
 
@@ -213,20 +140,15 @@ Elf32_Sym SymbolTable_Entry0 {
 #define STB_LOCAL       0
 #define STB_GLOBAL      1
 #define STB_WEAK        2
-#define STB_LOPROC      13
-#define STB_HIPROC      15
 
 
 // Symbol types used for Elf32 symbol table entry member st_info, specifically its type value
-
 
 #define STT_NOTYPE      0
 #define STT_OBJECT      1
 #define STT_FUNC        2
 #define STT_SECTION     3
 #define STT_FILE        4
-#define STT_LOPROC      13
-#define STT_HIPROC      15
 
 
 // Elf32 relocation table entry structures
@@ -257,12 +179,13 @@ struct Elf32_Rela {
 
 // Macros used to manipulate with r_info and the values it holds
 
-#define ELF32_R_SYM(i)          ((i)>>8)
-#define ELF32_R_TYPE(i)         ((unsigned char)(i))
-#define ELF32_R_INFO(s, t)      (((s)<<8)+(unsigned char)(t))
+#define ELF32_R_SYM(i)        ((i)>>8)
+#define ELF32_R_TYPE(i)        ((unsigned char)(i))
+#define ELF32_R_INFO(s, t)     (((s)<<8)+(unsigned char)(t))
 
 
 // Elf32 program header structure
+// TODO - check this
 
 struct Elf32_Phdr {
     Elf32_Word      p_type;
@@ -275,6 +198,7 @@ struct Elf32_Phdr {
     Elf32_Word      p_align;
 };
 
+#define PHDR_SIZE sizeof(Elf32_Phdr)
 
 // Segment types used for Elf32 program header member p_type
 
@@ -285,9 +209,6 @@ struct Elf32_Phdr {
 #define PT_NOTE         4
 #define PT_SHLIB        5
 #define PT_PHDR         6
-#define PT_LOPROC       0x70000000
-#define PT_HIPROC       0x7fffffff
-
 
 // Segment flag bit used for Elf32 program header member p_flags
 
