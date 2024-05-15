@@ -7,45 +7,54 @@
 
 #include "helper.hpp"
 
+namespace Types {
+  enum Instruction_Type { HALT, INT, IRET, CALL, RET, JMP, BEQ, BNE, BGT, PUSH, POP, XCHG, ADD, SUB, MUL, DIV, NOT, AND, OR, XOR, SHL, SHR, LD, ST, CSRRD, CSRWR };
+  enum Directive_Type { GLOBAL, EXTERN, SECTION, WORD, SKIP, ASCII, EQU, END };
+  enum Operand_Type { LIT, SYM, REG, LIT_DIR, SYM_DIR, REG_DIR, REG_LIT, REG_SYM, TST };
+}
+/*
 enum Instruction_Type { HALT, INT, IRET, CALL, RET, JMP, BEQ, BNE, BGT, PUSH, POP, XCHG, ADD, SUB, MUL, DIV, NOT, AND, OR, XOR, SHL, SHR, LD, ST, CSRRD, CSRWR };
 enum Directive_Type { GLOBAL, EXTERN, SECTION, WORD, SKIP, ASCII, EQU, END };
 enum Operand_Type { LIT, SYM, REG, LIT_DIR, SYM_DIR, REG_DIR, REG_LIT, REG_SYM, TST };
-
+*/
 // TODO - Registers?
 
 class Assembler;
 
+
 // Depending on the operand type, some of the elements will be used ( literal and symbol could be in an union )
 struct Operand {
-    Operand_Type type;
+    Types::Operand_Type type;
     int literal;
     std::string symbol;
     int reg = -1;
 
     friend std::ostream& operator<<(std::ostream& os, const Operand& op) {
         switch(op.type) {
-            case LIT: os << "$" << op.literal; break;
-            case SYM: os << "$" << op.symbol; break;
-            case REG: os << "%" << Helper::regToString(op.reg); break;
-            case LIT_DIR: os << op.literal; break;
-            case SYM_DIR: os << op.symbol; break;
-            case REG_DIR: os << "[%" << Helper::regToString(op.reg) << "]"; break;
-            case REG_LIT: os << "[%" << Helper::regToString(op.reg) << " + " << op.literal << "]"; break;
-            case REG_SYM: os << "[%" << Helper::regToString(op.reg) << " + " << op.symbol << "]"; break;
+            case Types::LIT: os << "$" << op.literal; break;
+            case Types::SYM: os << "$" << op.symbol; break;
+            case Types::REG: os << "%" << Helper::regToString(op.reg); break;
+            case Types::LIT_DIR: os << op.literal; break;
+            case Types::SYM_DIR: os << op.symbol; break;
+            case Types::REG_DIR: os << "[%" << Helper::regToString(op.reg) << "]"; break;
+            case Types::REG_LIT: os << "[%" << Helper::regToString(op.reg) << " + " << op.literal << "]"; break;
+            case Types::REG_SYM: os << "[%" << Helper::regToString(op.reg) << " + " << op.symbol << "]"; break;
         }
         return os;
     }
 };
 
+typedef struct Operand Operand;
+
 // Depending on the instruction type, the appropriate(if any) operand will be used
 struct Instruction {
-    Instruction_Type type;
+    Types::Instruction_Type type;
     int reg1 = -1;
     int reg2 = -1;
     Operand op;
 
     Instruction() {
-        op.type = TST;
+        op.type = Types::TST;
     };
 
     friend std::ostream& operator<<(std::ostream& os, const Instruction& instr) {
@@ -79,16 +88,16 @@ struct Instruction {
         } 
         std::string reg1 = Helper::regToString(instr.reg1);
         std::string reg2 = Helper::regToString(instr.reg2);
-        if ( reg1 != "" && instr.type != LD) os << " " << reg1;
+        if ( reg1 != "" && instr.type != Types::LD) os << " " << reg1;
         if ( reg2 != "") os << ", " << reg2;
 
-        if ( instr.op.type != TST && instr.type != LD) {
-            os << ", " << instr.op;
-        }
-
-        if ( instr.type == LD ) {
+        if ( instr.type == Types::LD ) {
             os << " " << instr.op << ", " << reg1;
-        }
+        } else if ( instr.type == Types::CALL || instr.type == Types::JMP ) {
+	    os << " " << instr.op;
+	} else if ( instr.op.type != Types::TST ) {
+	    os << ", " << instr.op;
+	}
 
         return os;
     }
@@ -97,19 +106,19 @@ struct Instruction {
 
 
 struct Directive {
-    Directive_Type type;
+    Types::Directive_Type type;
     int literal;
     std::string symbol;
     friend std::ostream& operator<<(std::ostream& os, const Directive& dir) {
         switch (dir.type) {
-        case GLOBAL: os << ".global " << dir.symbol; break;
-        case EXTERN: os << ".extern " << dir.symbol; break;
-        case SECTION: os << ".section " << dir.symbol; break;
-        case WORD: os << ".word " << dir.symbol; break;
-        case SKIP: os<< ".skip " << dir.literal; break;
-        case ASCII: os << ".ascii " << dir.symbol; break;
-        case EQU: os << ".equ "; break; // TODO - equ
-        case END: os << ".end"; break;
+        case Types::GLOBAL: os << ".global " << dir.symbol; break;
+        case Types::EXTERN: os << ".extern " << dir.symbol; break;
+        case Types::SECTION: os << ".section " << dir.symbol; break;
+        case Types::WORD: os << ".word " << dir.symbol; break;
+        case Types::SKIP: os<< ".skip " << dir.literal; break;
+        case Types::ASCII: os << ".ascii " << dir.symbol; break;
+        case Types::EQU: os << ".equ "; break; // TODO - equ
+        case Types::END: os << ".end"; break;
         }
         return os;
     }
@@ -122,10 +131,18 @@ class Assembler {
     std::vector<Instruction> instructions;
     std::vector<Directive> directives;
 
+protected:
+
+    Assembler() {};
+    static Assembler* assembler;
+
 public:
 
-    Assembler() {}
-    //~Assembler();
+    Assembler(Assembler&) = delete;
+    void operator=(const Assembler&) = delete;
+    static Assembler* getInstance();
+
+    ~Assembler();
 
     //void startPass();
     void addLabel(std::string label_name);

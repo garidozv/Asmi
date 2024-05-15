@@ -3,17 +3,17 @@
 #include <string>
 #include <vector>
 #include "helper.hpp"
+#include "Assembler.hpp"
 #include <iostream>
 
 extern int yylineno;
 
 using namespace std;
 
-int line_cnt = 0;
 void yyerror (const char* s);
 int  yylex ();
 
-vector<string*>* labels = new vector<string*>();
+Assembler* assembler = Assembler::getInstance();
 
 %}
 
@@ -23,6 +23,9 @@ vector<string*>* labels = new vector<string*>();
 %union {
   int num;
   std::string* sym;
+  struct Operand* op;
+  struct Instruction* instr;
+  struct Directive* dir;
 }
 
 %token GLOBAL
@@ -61,9 +64,6 @@ vector<string*>* labels = new vector<string*>();
 %token CSRRD
 %token CSRWR
 
-%token GPR
-%token CSR
-
 %token EOL
 %token PLUS
 %token COL
@@ -78,9 +78,15 @@ vector<string*>* labels = new vector<string*>();
 %token<num> IMMLIT
 %token<sym> IMMSYM
 %token<sym> LAB
+%token<sym> GPR
+%token<sym> CSR;
 %type<sym> symbolic_list
 %type<sym> literal_list
 %type<sym> list
+%type<op> jmpcallop
+%type<op> operand
+%type<instr> instruction
+%type<dir> directive
 
 /* TODO - change the way operands are recognized */
 
@@ -90,67 +96,380 @@ input:
 | line input;
 
 line:
-  LAB EOL { cout << "just a label" << endl << *$1 << endl; }
-| LAB directive EOL { cout << "label and directive" << endl; }
-| LAB instruction EOL { cout << "label and instruciton" << endl; }
-| directive EOL { cout << "just a directive" << endl; }
-| instruction EOL { cout << "just a isntruction" << endl; }
-| EOL { line_cnt++; cout << "end" << endl; };
+  LAB EOL {
+	assembler->addLabel(*($1));
+	delete $1;
+}
+| LAB directive EOL {
+	assembler->addLabel(*($1));
+	assembler->addDirective(*($2));
+	delete $1;
+	delete $2;
+}
+| LAB instruction EOL {
+	assembler->addLabel(*($1));
+	assembler->addInstruction(*($2));
+	delete $1;
+	delete $2;
+}
+| directive EOL {
+	assembler->addDirective(*($1));
+	delete $1;
+}
+| instruction EOL {
+	assembler->addInstruction(*($1));
+	delete $1;
+}
+| EOL { };
 
 directive:
-  GLOBAL symbolic_list { cout << *($2) << endl; }
-| EXTERN symbolic_list { cout << *($2) << endl; }
-| SECTION SYMBOLIC
-| WORD list { cout << *($2) << endl; }
-| SKIP LITERAL
-| ASCII STR { cout << *($2) << endl; }
-| EQU SYMBOLIC COMMA LITERAL /* expression here, not literal */ 
-| END
+  GLOBAL symbolic_list {
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::GLOBAL;
+	dir->symbol = *($2);
+	delete $2;
+	$$ = dir;
+}
+| EXTERN symbolic_list {
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::EXTERN;
+	dir->symbol = *($2);
+	delete $2;
+	$$ = dir;
+}
+| SECTION SYMBOLIC {
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::SECTION;
+	dir->symbol = *($2);
+	delete $2;
+	$$ = dir;
+}
+| WORD list {
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::WORD;
+	dir->symbol = *($2);
+	delete $2;
+	$$ = dir;
+}
+| SKIP LITERAL {
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::SKIP;
+	dir->literal = $2;
+	$$ = dir;
+}
+| ASCII STR {
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::ASCII;
+	dir->symbol = *($2);
+	delete $2;
+	$$ = dir;
+}
+| EQU SYMBOLIC COMMA LITERAL {  /* expression here, not literal */
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::EQU;
+	dir->symbol = *($2);
+	dir->literal = $4;
+	delete $2;
+	$$ = dir;
+}
+| END {
+	struct Directive* dir = new struct Directive();
+	dir->type = Types::END;
+	$$ = dir;
+}
 
 
 instruction:
-  HALT
-| INT
-| IRET
-| RET
-| CALL jmpcallop
-| JMP jmpcallop
-| PUSH GPR
-| POP GPR
-| NOT GPR
-| XCHG GPR COMMA GPR
-| ADD GPR COMMA GPR
-| SUB GPR COMMA GPR
-| MUL GPR COMMA GPR
-| DIV GPR COMMA GPR
-| AND GPR COMMA GPR
-| OR GPR COMMA GPR
-| XOR GPR COMMA GPR
-| SHL GPR COMMA GPR
-| SHR GPR COMMA GPR
-| CSRRD CSR COMMA GPR
-| CSRWR GPR COMMA CSR
-| LD operand COMMA GPR
-| ST GPR COMMA operand
-| BEQ GPR COMMA GPR COMMA operand
-| BNE GPR COMMA GPR COMMA operand
-| BGT GPR COMMA GPR COMMA operand
+  HALT {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::HALT;
+	$$ = instr;
+}
+| INT {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::INT;
+	$$ = instr;
+}
+| IRET {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::IRET;
+	$$ = instr;
+}
+| RET {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::RET;
+	$$ = instr;
+}
+| CALL jmpcallop {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::CALL;
+	instr->op = *($2);
+	delete $2;
+	$$ = instr;
+}
+| JMP jmpcallop {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::JMP;
+	instr->op = *($2);
+	delete $2;
+	$$ = instr;
+}
+| PUSH GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::PUSH;
+	instr->reg1 = Helper::parseReg(*($2));
+	delete $2;
+	$$ = instr;
+}
+| POP GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::POP;
+	instr->reg1 = Helper::parseReg(*($2));
+	delete $2;
+	$$ = instr;
+}
+| NOT GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::NOT;
+	instr->reg1 = Helper::parseReg(*($2));
+	delete $2;
+	$$ = instr;
+}
+| XCHG GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::XCHG;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| ADD GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::ADD;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| SUB GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::SUB;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| MUL GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::MUL;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| DIV GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::DIV;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| AND GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::AND;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| OR GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::OR;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| XOR GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::XOR;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| SHL GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::SHL;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| SHR GPR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::SHR;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| CSRRD CSR COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::CSRRD;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| CSRWR GPR COMMA CSR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::CSRWR;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| LD operand COMMA GPR {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::LD;
+	instr->reg1 = Helper::parseReg(*($4));
+	instr->op = *($2);
+	delete $4;
+	delete $2;
+	$$ = instr;
+}
+| ST GPR COMMA operand {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::ST;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->op = *($4);
+	delete $2;
+	delete $4;
+	$$ = instr;
+}
+| BEQ GPR COMMA GPR COMMA operand {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::BEQ;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	instr->op = *($6);
+	delete $2;
+	delete $4;
+	delete $6;
+	$$ = instr;
+}
+| BNE GPR COMMA GPR COMMA operand {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::BNE;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	instr->op = *($6);
+	delete $2;
+	delete $4;
+	delete $6;
+	$$ = instr;
+}
+| BGT GPR COMMA GPR COMMA operand {
+	struct Instruction* instr = new struct Instruction();
+	instr->type = Types::BGT;
+	instr->reg1 = Helper::parseReg(*($2));
+	instr->reg2 = Helper::parseReg(*($4));
+	instr->op = *($6);
+	delete $2;
+	delete $4;
+	delete $6;
+	$$ = instr;
+}
 
 
 /* CSR here as well? */
 operand:
-  IMMLIT
-| IMMSYM
-| GPR
-| LSQB GPR RSQB
-| LSQB GPR PLUS SYMBOLIC RSQB
-| LSQB GPR PLUS LITERAL RSQB
-| SYMBOLIC
-| LITERAL
+  IMMLIT {
+	struct Operand* op = new struct Operand();
+	op->type = Types::LIT;
+	op->literal = $1;
+	$$ = op;
+}
+| IMMSYM {
+	struct Operand* op = new struct Operand();
+	op->type = Types::SYM;
+	op->symbol = *($1);
+	delete $1;
+	$$ = op;
+}
+| GPR {
+	struct Operand* op = new struct Operand();
+	op->type = Types::REG;
+	op->reg = Helper::parseReg(*($1));
+	delete $1;
+	$$ = op;
+}
+| LSQB GPR RSQB {
+	struct Operand* op = new struct Operand();
+	op->type = Types::REG_DIR;
+	op->reg = Helper::parseReg(*($2));
+	delete $2;
+	$$ = op;
+}
+| LSQB GPR PLUS SYMBOLIC RSQB {
+	struct Operand* op = new struct Operand();
+	op->type = Types::REG_SYM;
+	op->reg = Helper::parseReg(*($2));
+	op->symbol = *($4);
+	delete $2;
+	delete $4;
+	$$ = op;
+}
+| LSQB GPR PLUS LITERAL RSQB {
+	struct Operand* op = new struct Operand();
+	op->type = Types::REG_LIT;
+	op->reg = Helper::parseReg(*($2));
+	op->literal = $4;
+	delete $2;
+	$$ = op;
+}
+| SYMBOLIC {
+	struct Operand* op = new struct Operand();
+        op->type = Types::SYM_DIR;
+        op->symbol = *($1);
+        delete $1;
+        $$ = op;
+}
+| LITERAL {
+	struct Operand* op = new struct Operand();
+        op->type = Types::LIT_DIR;
+        op->literal = $1;
+        $$ = op;
+}
 
 jmpcallop:
-  SYMBOLIC
-| LITERAL
+  SYMBOLIC {
+	struct Operand* op = new struct Operand();
+	op->type = Types::SYM_DIR;
+	op->symbol = *($1);
+	delete $1;
+	$$ = op;
+}
+| LITERAL {
+	struct Operand* op = new struct Operand();
+	op->type = Types::LIT_DIR;
+	op->literal = $1;
+	$$ = op;
+}
 
 
 list:
@@ -183,14 +502,7 @@ int main() {
 
   yyparse();
 
-  printf("Number of lines is: %d\n", line_cnt);
-
-  for ( int i = 0; i < labels->size(); i++ ) {
-    cout << *((*labels)[i]) << endl;
-    delete (*labels)[i];
-  }
-
-  delete labels;
+  cout << *(assembler) << endl;
 
   return 0;
 }
