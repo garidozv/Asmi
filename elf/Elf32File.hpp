@@ -83,6 +83,7 @@ public:
     int createSection(std::string section_name, Elf32_Word type, Elf32_Word flags, Elf32_Addr addr);
     // TODO - maybe type and flags not needed, logic on that can be in this class
 
+    void readElf();
 };
 
 

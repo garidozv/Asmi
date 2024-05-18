@@ -35,3 +35,14 @@ std::string Helper::regToString(int reg) {
 
     return "";
 }
+
+std::vector<std::string> Helper::splitString(std::string str, char delim) {
+    std::vector<std::string> tokens;
+    std::string temp;
+    std::istringstream stream(str);
+    while (std::getline(stream, temp, delim)) {
+        tokens.push_back(temp);
+    }
+
+    return tokens;
+}

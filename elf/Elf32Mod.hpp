@@ -183,6 +183,12 @@ struct Elf32_Rela {
 #define ELF32_R_TYPE(i)        ((unsigned char)(i))
 #define ELF32_R_INFO(s, t)     (((s)<<8)+(unsigned char)(t))
 
+// Relocation types
+
+#define R_PC32      1
+#define R_32        2
+#define R_32S       3
+#define R_12S       4
 
 // Elf32 program header structure
 // TODO - check this

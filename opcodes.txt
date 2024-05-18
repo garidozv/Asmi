@@ -1,0 +1,151 @@
+sp = 14; pc = 15; status = 0; handler = 1; cause = 2
+
+HALT	0x00000000
+INT		0x10000000
+
+PUSH RX		0x81E0XFFC
+sp <= sp - 4
+mem[sp] <= r[x] 
+
+
+POP RX		0x93XE0004
+r[x] <= mem[sp]
+sp <= sp + 4
+
+
+IRET 		0x93FE0004	// pop pc
+			0x970E0004	// pop status
+
+pc <= mem[sp]
+sp <= sp + 4
+status <= mem[sp]
+sp <= sp + 4
+
+ 
+CALL literal/symbol			0x21F00DDD
+sp <= sp - 4
+mem[sp] <= pc
+pc <= mem[pc + D]
+D - pomjeraj od pc(pocetka naredne instrukcije) do ulaza u bazenu literala koji drzi ovaj operand
+
+ako je u pitanju literal, samo se dodaje ulaz u bazen literala(ako vec ne postoji)
+ulaz u bazenu literala, pored vrijednosti literala, sadrzi nesto slicno forward ref listi, koja ce morati da se prodje pri pravljenju bazena
+i upisu odgovarajuci pomjeraji do tog ulaza
+
+u slucaju simbola, pravi se forward reference zapis za taj simbol, u kome ce biti zapisano da se radi o literalu
+pri backaptchingu ako se naidje na ovakav forward ref, dodaje se novi ulaz u tabelu literala, ali bez liste
+jer ce pri backaptchingu, posto je poznata adresa bazena, biti upisan pomjeraj u instrukciju
+i posto cu za sada samo da koristim apsolutne adrese uvijek ce morati da se doda i relokacioni zapis za taj ulaz u bazenu literala
+
+
+JMP literal/symbol		0x38F00DDD
+pc <= mem[pc + D]
+
+
+RET			0x93FE0004
+pc <= mem[sp]
+sp <= sp + 4
+
+
+XCHG RX, RY			0x400XY000
+temp <= r[x]
+r[x] <= r[y]
+r[y] <= temp
+
+
+ADD RX, RY			0x50YYX000
+r[y] <= r[y] + r[x]
+
+SUB RX, RY			0x51YYX000
+r[y] <= r[y] - r[x]
+
+MUL RX, RY			0x52YYX000
+r[y] <= r[y] * r[x]
+
+DIV RX, RY			0x53YYX000
+r[y] <= r[y] / r[x]
+
+
+NOT RX				0x60XX0000
+r[x] < ~r[x]
+
+AND RX, RY			0x61YYX000
+r[y] <= r[y] & r[x]
+
+OR RX, RY			0x62YYX000
+r[y] <= r[y] | r[x]
+
+XOR RX, RY			0x63YYX000
+r[y] <= r[y] ^ r[x]
+
+SHL RX, RY			0x70YYX000
+r[y] <= r[y] << r[x]
+
+SHR RX, RY			0x71YYX000
+r[y] <= r[y] >> r[x]
+
+
+CSRRD CRX, RY		0x90YX0000
+r[y] <= cr[x]
+
+CSRWR RX, CRY		0x94YX0000
+cr[y] <= r[x]
+
+
+ST RX, $LITERAL/$SYMBOL	// nije dozvoljeno ST sa neposrednim adresiranjem
+
+ST RX, LITERAL/SYMBOL		0x82F0XDDD
+mem[mem[pc + D]] <= r[x]
+
+ST RX, RY			0x91YX0000
+r[y] <= r[x] + 0
+
+ST RX, [RY]			0x80Y0X000
+mem[r[y]] <= r[x]
+
+ST RX, [RY + LITERAL]		0x80Y0XDDD
+mem[r[y] + D] <= r[x]	// D je u sklopu instrukcije, a ne u bazenu literala - mora biti 12b maks
+
+ST RX, [RY + SYMBOL]		0x80Y0XDDD
+mem[r[y] + D] <= r[x]	// D je u sklopu instrukcije, a ne u bazenu literala - mora biti poznata vrijednost i mora biti 12b maks
+
+
+
+LD $LITERAL/$SYMBOL, RX		0x92XF0DDD
+r[x] <= mem[pc + D] 	// literal/simbol se nalazi u bazenu literala
+
+LD LITERAL/SYMBOL, RX		0x92XF0DDD
+							0x92XX0000
+r[x] <= mem[pc + D]		// rx se svakako mijenja, pa mogu adresu da upisem u njega
+r[x] <= mem[r[x]]
+
+LD RY, RX			0x91XY0000
+r[x] <= r[y]
+
+LD [RY], RX			0x92XY0000
+r[x] <= mem[r[y]]
+
+LD [RY + LITERAL], RX		0x92XY0DDD
+r[x] <= mem[r[y] + D]	// D je u sklopu instrukcije, a ne u bazenu literala - mora biti 12b maks
+
+LD [RY + SYMBOL], RX		0x92XY0DDD
+r[x] <= mem[r[y] + D]	// D je u sklopu instrukcije, a ne u bazenu literala - mora biti poznata vrijednost i mora biti 12b maks
+
+
+
+BEQ RX, RY, $LITERAL/$SYMBOL		0x39FXYDDD	|	0x3AFXYDDD	|	0x3BFXYDDD
+if ( r[x] == r[y] ) pc <= mem[pc + D]		// literal/simbol je u bazenu literala
+
+BEQ RX, RY, LITERAL/SYMBOL			0x39FXYDDD	|	0x3AFXYDDD	| 	0x3BFXYDDD
+									0x39FXY000	|	0X3AFXY000	|	0x3BFXY000
+if ( r[x] == r[y] ) pc <= mem[pc + D]		// literal/simbol je u bazenu
+if ( r[x] == r[y] ) pc <= mem[pc]	
+
+BEQ RX, RY, RZ						0x31ZXY000	|	0x32ZXY000	|	0x33ZXY000
+if ( r[x] == r[y] ) pc <= r[z]	
+
+BEQ RX, RY, [RZ]					0x39ZXY000	|	0x3AZXY000	|	0x3BZXY000
+if ( r[x] == r[y] ) pc <= mem[r[z]]
+
+BEQ RX, RY, [RZ + LITERAL/SYMBOL]	0x39ZXYDDD	|	0x3AZXYDDD	| 	0x3BZXYDDD
+if ( r[x] == r[y] ) pc <= mem[r[z] + D]
