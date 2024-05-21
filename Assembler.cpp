@@ -18,14 +18,14 @@ Assembler::~Assembler() {
     }
     // TODO - go through every symbol and if section delete contents vector and literal pool map
     delete symbol_table;
-    delete relocation_table;
+    //delete relocation_table;
 }
 
 Assembler::Assembler() {
     LC = 0;
     current_section = -1;
     symbol_table = new std::vector<Symbol>();
-    relocation_table = new std::vector<Reloc_Entry>();
+    //relocation_table = new std::vector<Reloc_Entry>();
     // add undefined symbol entry
     addSymbol("undefined", STB_LOCAL, true, false, 0, 0);
 }
@@ -94,6 +94,7 @@ int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_s
         sym.section = entry;
         sym.offset = 0;
         sym.contents = new std::vector<uint8_t>();
+        sym.reloc_table = new std::vector<Reloc_Entry*>();
         sym.literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
         sym.symbol_literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
     } else {
@@ -475,19 +476,20 @@ void Assembler::resolveSymbol(std::string symbol) {
     if ( entry > 0 ) {                
         if ( symbol_table_ref[entry].defined ) {
             // If defined, we only have to create a relocation entry
-            Reloc_Entry reloc;
-            reloc.addend = 0;
+            Reloc_Entry* reloc = new Reloc_Entry();
+            reloc->addend = 0;
             if ( symbol_table_ref[entry].bind == STB_GLOBAL ) {
-                reloc.symbol = entry;
+                reloc->symbol = entry;
             } else {
-                reloc.section = symbol_table_ref[entry].section;
-                reloc.addend += symbol_table_ref[entry].offset;
+                reloc->section = symbol_table_ref[entry].section;
+                reloc->addend += symbol_table_ref[entry].offset;
             }
-            reloc.offset = LC;
-            reloc.section = current_section;
-            reloc.type = R_32;
+            reloc->offset = LC;
+            reloc->section = current_section;
+            reloc->type = R_32;
             
-            relocation_table->push_back(reloc);
+            symbol_table_ref[current_section].reloc_table->push_back(reloc);
+            //relocation_table->push_back(reloc);
         } else {
             // Not defined, we dont know the value, so we add it to forward ref list
             // If symbol is not defined even during backpatching, that's an error
@@ -752,19 +754,20 @@ void Assembler::startBackpatching() {
                 case REGULAR: {
                     // regular forward reference to write symbols value into one word
                     // TODO - constant symbols wont need relocation, but for now it will always produce relocation entry
-                    Reloc_Entry reloc;
-                    reloc.addend = 0;
+                    Reloc_Entry* reloc = new Reloc_Entry();
+                    reloc->addend = 0;
                     if ( symbol_table_ref[i].bind == STB_GLOBAL ) {
-                        reloc.symbol = i;
+                        reloc->symbol = i;
                     } else {
-                        reloc.section = symbol_table_ref[i].section;
-                        reloc.addend += symbol_table_ref[i].offset;
+                        reloc->section = symbol_table_ref[i].section;
+                        reloc->addend += symbol_table_ref[i].offset;
                     }
-                    reloc.offset = forward_ref->offset;
-                    reloc.section = forward_ref->section;
-                    reloc.type = R_32;
+                    reloc->offset = forward_ref->offset;
+                    reloc->section = forward_ref->section;
+                    reloc->type = R_32;
                     
-                    relocation_table->push_back(reloc);
+                    symbol_table_ref[forward_ref->section].reloc_table->push_back(reloc);
+                    //relocation_table->push_back(reloc);
                     break;
                 }
                 case CONSTANT: {
@@ -882,20 +885,20 @@ void Assembler::resolveLiteralPools() {
                 int32_t offset = (LC - 4) - ((int32_t)ref->offset + 4);
                 insertDisplacement(current_section, ref->offset, offset);
 
-                Reloc_Entry reloc;
-                reloc.addend = 0;
+                Reloc_Entry* reloc = new Reloc_Entry();
+                reloc->addend = 0;
                 if ( symbol_table_ref[entry.first].bind == STB_GLOBAL ) {
-                    reloc.symbol = entry.first;
+                    reloc->symbol = entry.first;
                 } else {
-                    reloc.section = symbol_table_ref[entry.first].section;
-                    reloc.addend += symbol_table_ref[entry.first].offset;
+                    reloc->section = symbol_table_ref[entry.first].section;
+                    reloc->addend += symbol_table_ref[entry.first].offset;
                 }
-                reloc.offset = LC - 4;
-                reloc.section = current_section;
-                reloc.type = R_32;
+                reloc->offset = LC - 4;
+                reloc->section = current_section;
+                reloc->type = R_32;
                 
-                relocation_table->push_back(reloc);
-                
+                symbol_table_ref[current_section].reloc_table->push_back(reloc);
+                //relocation_table->push_back(reloc);
             }
 
             // TODO - delete literal tables and references in them in destructor
@@ -939,34 +942,69 @@ void Assembler::patchWord(uint32_t section, uint32_t offset, uint32_t word) {
 
 
 void Assembler::print() {
+
+    std::ofstream fout("output.txt");
     
     std::vector<Symbol>& symbol_table_ref = *symbol_table;
 
-    std::cout << std::endl << "SYMBOL TABLE" << std::endl << "------------------------------------------------" << std::endl;
+    fout << std::endl << "SYMBOL TABLE" << std::endl << "------------------------------------------------" << std::endl;
 
-    std::cout << std::showbase << std::hex;
+    fout << std::hex << std::left;
 
-    std::cout << std::setw(4) << "Ind" << std::setw(15) << "Name" << std::setw(10) << "Value" << std::setw(5) << "Bind" 
+    // TODO - remove Def column(Its just for testing)
+    fout << std::setw(4) << "Ind" << std::setw(15) << "Name" << std::setw(11) << "Value" << std::setw(5) << "Bind" 
     << std::setw(8) << "Section" << std::setw(3) << "Def" << std::endl;
     for ( int i = 0; i < symbol_table_ref.size(); i++) {
-        std::cout << std::setw(4) << i << std::setw(15) << symbol_table_ref[i].name << std::setw(10) << symbol_table_ref[i].offset
-        << std::setw(5) << (symbol_table_ref[i].bind == STB_GLOBAL ? "G" : (symbol_table_ref[i].bind != STB_LOCAL ? "N" : "L" ) )
-        << std::setw(8) << symbol_table_ref[i].section << std::setw(3) << ( symbol_table_ref[i].defined == true ? "1" : "0" ) << std::endl;
+        fout << std::setw(4) << i << std::setw(15) << symbol_table_ref[i].name;
+        fout << std::showbase << std::internal << std::setfill('0') << std::left;
+        if ( symbol_table_ref[i].offset == 0 ) fout << "0x00000000";
+        else fout << std::setw(10) << symbol_table_ref[i].offset;
+        fout << " ";
+        fout << std::noshowbase << std::internal << std::setfill(' ') << std::left;
+        fout << std::setw(5) << (symbol_table_ref[i].bind == STB_GLOBAL ? "G" : (symbol_table_ref[i].bind != STB_LOCAL ? "N" : "L" ) );
+        fout << std::setw(8) << symbol_table_ref[i].section << std::setw(3) << ( symbol_table_ref[i].defined == true ? "1" : "0" ) << std::endl;
     }
 
-    std::cout << std::endl << "SECTIONS" << std::endl << "------------------------------------------------" << std::endl;
-
+    fout << std::endl << "SECTIONS" << std::endl << "------------------------------------------------" << std::endl;
+    fout << std::noshowbase << std::internal << std::setfill('0');
+    
     for ( int i = 1; i < symbol_table_ref.size(); i++) {
         if ( symbol_table_ref[i].section != i ) continue;
-        std::cout << "\"" << symbol_table_ref[i].name << "\":" << std::endl;
+        fout << "\"" << symbol_table_ref[i].name << "\":" << std::endl;
 
         std::vector<unsigned char>& contents_ref = *symbol_table_ref[i].contents;
         for ( int j = 0; j < contents_ref.size(); j += 4 ) {
+            if ( !(j%16) ) fout << std::setw(4) << j << ": ";
             uint32_t word = (uint32_t)contents_ref[j] | ((uint32_t)contents_ref[j+1] << 8) | ((uint32_t)contents_ref[j+2] << 16) | ((uint32_t)contents_ref[j+3] << 24);
-            std::cout << " | " << std::setw(15) << word;    
-            if ( j != 0 &&  !((j+4) % 16) ) std::cout << std::endl;
+            fout << std::setw(8) << word << " ";
+            if ( j != 0 && j != contents_ref.size() - 1 && !((j+4) % 16) ) fout << std::endl;
         }
-        std::cout << std::endl;
+        fout << std::endl << std::endl;
+    }
+
+    fout << std::endl << "RELOCATION TABLES" << std::endl << "------------------------------------------------" << std::endl;
+    fout << std::showbase << std::setfill(' ') << std::left;
+
+    for ( int i = 1; i < symbol_table_ref.size(); i++) {
+        if ( symbol_table_ref[i].section != i || symbol_table_ref[i].reloc_table->size() == 0 ) continue;
+        fout << "\"" << symbol_table_ref[i].name << ".rela\":" << std::endl;
+
+        std::vector<Reloc_Entry*>& reloc_table_ref = *symbol_table_ref[i].reloc_table; 
+
+        fout << std::showbase << std::internal << std::setfill('0') << std::left;
+
+        fout << std::setw(10) << "Offset" << std::setw(10) << "Type" << std::setw(8) << "Symbol" << std::setw(10) << "Addend" << std::endl;
+        for ( int j = 0; j < reloc_table_ref.size(); j++) {
+            if ( reloc_table_ref[j]->offset == 0 ) fout << "0x00000000";
+            else fout << std::setw(10) << reloc_table_ref[j]->offset;
+            fout << std::noshowbase << std::internal << std::setfill(' ') << std::left;
+            fout << std::setw(10) << ( reloc_table_ref[j]->type == R_32 ? "R_32" : "R_32S" ); 
+            fout << std::setw(8) << reloc_table_ref[j]->symbol;
+            fout << std::showbase << std::internal << std::setfill('0') << std::left;
+            if ( reloc_table_ref[j]->addend == 0 ) fout << "0x00000000";
+            else fout << std::setw(10) << reloc_table_ref[j]->addend;
+            fout << std::endl;
+        }
+        fout << std::endl;
     }
 }
-

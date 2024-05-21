@@ -5,6 +5,7 @@
 #include <cctype>
 #include <stdint.h>
 #include <iomanip>
+#include <fstream>
 
 #include "Helper.hpp"
 #include "AssemblerDefs.hpp"
@@ -16,7 +17,7 @@ class Assembler {
     int LC;
 
     std::vector<Symbol>* symbol_table;
-    std::vector<Reloc_Entry>* relocation_table;
+    //std::vector<Reloc_Entry>* relocation_table;
     int32_t current_section;
     bool ended = false;
 
