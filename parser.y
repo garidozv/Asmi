@@ -88,7 +88,6 @@ Assembler* assembler = Assembler::getInstance();
 %type<instr> instruction
 %type<dir> directive
 
-/* TODO - change the way operands are recognized */
 
 %%
 
@@ -120,7 +119,7 @@ line:
 	assembler->addInstruction(*($1));
 	delete $1;
 }
-| EOL { };
+| EOL { assembler->newLine(); };
 
 directive:
   GLOBAL symbolic_list {

@@ -34,12 +34,13 @@ Assembler::Assembler() {
 void Assembler::addLabel(std::string label_name) {
     if ( current_section == -1 ) {
         // Error, a label can not stand on its own, outside of a section
+        printError("the label '" + label_name + "' must be placed within a section");
     } else {
         int entry = findSymbol(label_name);
         if ( entry >= 0 ) {
             std::vector<Symbol>& symbol_table_ref = *symbol_table;
             if ( symbol_table_ref[entry].defined ) {
-                // Error, symbol with same name already exists
+                printError("symbol '" + symbol_table_ref[entry].name + "' is already defined");
             } else {
                 // Entry for this symbol already exists in symbol table as a result of forward referencing
                 // Set all the fields and mark it as defined, forward references will be resolved at the end
@@ -57,6 +58,7 @@ void Assembler::addLabel(std::string label_name) {
             // Default bind is local
         }
     }
+    lineno++;
 }
 
 int Assembler::findSymbol(std::string symbol_name) {
@@ -109,7 +111,7 @@ int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_s
 
 void Assembler::addInstruction(Instruction instruction) {
     if ( current_section == -1 ) {
-        // Error, an instruction can not stand on its own, outside of a section
+       printError("the instruction must be placed within a section");
     } else {
         switch (instruction.type) {
         case Types::HALT: {
@@ -280,6 +282,7 @@ void Assembler::addInstruction(Instruction instruction) {
         case Types::ST: {
             if ( instruction.op.type == Types::LIT || instruction.op.type == Types::SYM ) {
                 // Error, store instruction can not be used in combination with immediate addressing
+                printError("store instruction can't be used in combination with immediate addressing");
             } else {
                 switch (instruction.op.type) {
                 case Types::LIT_DIR: case Types::SYM_DIR: {
@@ -318,6 +321,7 @@ void Assembler::addInstruction(Instruction instruction) {
                     // Y the base register and D an immediate literal being added to base register 
                     if ( !(instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff) ) {
                         // Error, immediate value for this type of addressing has to fit in 12 bits
+                        printError("literal used as offset in base register addressing must fit in 12 displacement bits");
                     }
                     uint32_t opcode = makeOpcode(0x80, instruction.op.reg, 0, instruction.reg1, instruction.op.literal);
                     addWordToCurentSection(opcode);
@@ -401,7 +405,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 // opcode for LD with base register addressing mode is 0x92XY0DDD where X represents the register being written to,
                 // Y the base register, and D an immediate literal being added to base register
                 if ( !(instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff) ) {
-                    // Error, immediate value for this type of addressing has to fit in 12 bits
+                    printError("literal used as offset in base register addressing must fit in 12 displacement bits");
                 }
                 uint32_t opcode = makeOpcode(0x92, instruction.reg1, instruction.op.reg, 0, instruction.op.literal);
                 addWordToCurentSection(opcode);
@@ -421,6 +425,12 @@ void Assembler::addInstruction(Instruction instruction) {
         }
         }
     }
+    lineno++;
+}
+
+void Assembler::printError(std::string message) {
+    std::cout << "assembler:" << lineno << ": error : " << message << std::endl;
+    exit(-1);
 }
 
 void Assembler::checkSymbol(std::string symbol) {
@@ -430,9 +440,7 @@ void Assembler::checkSymbol(std::string symbol) {
         if ( symbol_table_ref[entry].defined && symbol_table_ref[entry].section != -1) {
             // -1 is just a placeholder, it should check if symbol belongs to ABS section, or in other words, check if symbol is constant
             // Symbol is not constant, so we report an error
-            // TODO - error handling function
-            std::cout << "Error: non constant symbol can't be offset in base register addressing" << std::endl;
-            exit(-1);
+            printError("non constant symbol can't be offset in base register addressing");
         }    
         else {
             // In every other case we add forward reference and move on
@@ -594,6 +602,8 @@ void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Ins
 void Assembler::addDirective(Directive directive) {
     if ( current_section == -1 && (directive.type == Types::WORD || directive.type == Types::SKIP || directive.type == Types::ASCII) ) {
         // Error, a directive can not stand on its own, outside of a section
+        std::string type = ( directive.type == Types::WORD ? "word" : (directive.type == Types::SKIP ? "skip" : "ascii" ) );
+        printError("the directive ." + type + " must be placed within a section");
     } else {
         switch (directive.type) {
        case Types::GLOBAL: {
@@ -627,8 +637,7 @@ void Assembler::addDirective(Directive directive) {
         case Types::SECTION: {
             int entry = findSymbol(directive.symbol);
             if ( entry > 0 ) {
-                std::cout << "Error: Redefinition of section \"" << directive.symbol << "\"" << std::endl;
-		        exit(-1); 
+                printError("redefinition of section '" + directive.symbol + "'"); 
             } else {
                 int new_entry = addSymbol(directive.symbol, STB_LOCAL, true, true);
 
@@ -695,6 +704,7 @@ void Assembler::addDirective(Directive directive) {
             break;
         }
     }
+    lineno++;
 }
 
 
@@ -725,8 +735,7 @@ std::vector<char> Assembler::processString(std::string string) {
 
 void Assembler::end() {
     if ( !ended ) {
-        std::cout << "Error: missing .end directive" << std::endl;
-        exit(-1);
+        printError("missing .end directive"); 
     }
 }
 
@@ -744,8 +753,8 @@ void Assembler::startBackpatching() {
         if ( !symbol_table_ref[i].defined ) {
             // Every symbol present in symbol table has to be defined after first pass
             // If it's in symbol table that means that it has been referenced at some point in program
-            std::cout << "Error: symbol \"" << symbol_table_ref[i].name << "\" is not defined" << std::endl;
-            exit(-1);
+            printError("symbol '" + symbol_table_ref[i].name + "' is not defined"); 
+            
         } else {
             // Here, we go through reference list and process them based on forward reference type
             
@@ -774,14 +783,12 @@ void Assembler::startBackpatching() {
                     if ( symbol_table_ref[i].section != -1 ) {
                         // Again, -1 is placeholder for ABS section
                         // If the symbol is not constant we report an error
-                        std::cout << "Error: non constant symbol \"" << symbol_table_ref[i].name << "\" can't be used as offset in base register addressing" << std::endl;
-                        exit(-1);
+                        printError("non constant symbol '" + symbol_table_ref[i].name + "' can't be used as offset in base register addressing"); 
                     } else {
                         // Symbol is constant, so we just add it into 12 displacement bits of instruction this reference points to
                         // We also have to check if it can fit in 12b
                         if ( !(symbol_table_ref[i].offset <= 0x7ff && symbol_table_ref[i].offset >= ~0x7ff) ) {
-                            std::cout << "Error: symbol \"" << symbol_table_ref[i].name << "\", used as offset in base register addressing, can't fit in 12 bits" << std::endl;
-                            exit(-1);
+                            printError("symbol '" + symbol_table_ref[i].name + "' used as offset in base register addressing must fit in 12 displacement bits"); 
                         } else {
                             insertDisplacement(forward_ref->section, forward_ref->offset, symbol_table_ref[i].offset);
                         }
@@ -819,7 +826,6 @@ void Assembler::startBackpatching() {
                     else {
                         // The reference and symbol are not in same section or offset can't fit in 12b
                         // We add this reference to symbol literal table with key being referenced symbol
-			            std::cout << forward_ref->instr << std::endl;
                         std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(forward_ref->section).symbol_literal_table;
 			            LiteralRef_Entry* lr = new LiteralRef_Entry();
                         lr->offset = forward_ref->offset;
@@ -949,18 +955,19 @@ void Assembler::print() {
 
     fout << std::endl << "SYMBOL TABLE" << std::endl << "------------------------------------------------" << std::endl;
 
-    fout << std::hex << std::left;
+    fout << std::hex  << std::left;
 
     // TODO - remove Def column(Its just for testing)
     fout << std::setw(4) << "Ind" << std::setw(15) << "Name" << std::setw(11) << "Value" << std::setw(5) << "Bind" 
     << std::setw(8) << "Section" << std::setw(3) << "Def" << std::endl;
+
     for ( int i = 0; i < symbol_table_ref.size(); i++) {
-        fout << std::setw(4) << i << std::setw(15) << symbol_table_ref[i].name;
-        fout << std::showbase << std::internal << std::setfill('0') << std::left;
+        fout << std::setw(4) << i << std::setw(15) << std::left << symbol_table_ref[i].name;
+        fout << std::showbase << std::internal << std::setfill('0');
         if ( symbol_table_ref[i].offset == 0 ) fout << "0x00000000";
         else fout << std::setw(10) << symbol_table_ref[i].offset;
         fout << " ";
-        fout << std::noshowbase << std::internal << std::setfill(' ') << std::left;
+        fout << std::noshowbase << std::setfill(' ') << std::left;
         fout << std::setw(5) << (symbol_table_ref[i].bind == STB_GLOBAL ? "G" : (symbol_table_ref[i].bind != STB_LOCAL ? "N" : "L" ) );
         fout << std::setw(8) << symbol_table_ref[i].section << std::setw(3) << ( symbol_table_ref[i].defined == true ? "1" : "0" ) << std::endl;
     }
@@ -970,7 +977,7 @@ void Assembler::print() {
     
     for ( int i = 1; i < symbol_table_ref.size(); i++) {
         if ( symbol_table_ref[i].section != i ) continue;
-        fout << "\"" << symbol_table_ref[i].name << "\":" << std::endl;
+        fout << "'" << symbol_table_ref[i].name << "':" << std::endl;
 
         std::vector<unsigned char>& contents_ref = *symbol_table_ref[i].contents;
         for ( int j = 0; j < contents_ref.size(); j += 4 ) {
@@ -987,20 +994,22 @@ void Assembler::print() {
 
     for ( int i = 1; i < symbol_table_ref.size(); i++) {
         if ( symbol_table_ref[i].section != i || symbol_table_ref[i].reloc_table->size() == 0 ) continue;
-        fout << "\"" << symbol_table_ref[i].name << ".rela\":" << std::endl;
+        fout << "'" << symbol_table_ref[i].name << ".rela':" << std::endl;
 
         std::vector<Reloc_Entry*>& reloc_table_ref = *symbol_table_ref[i].reloc_table; 
 
-        fout << std::showbase << std::internal << std::setfill('0') << std::left;
+        fout << std::noshowbase << std::setfill(' ') << std::left;
 
-        fout << std::setw(10) << "Offset" << std::setw(10) << "Type" << std::setw(8) << "Symbol" << std::setw(10) << "Addend" << std::endl;
+        fout << std::setw(11) << "Offset" << std::setw(5) << "Type" << std::setw(7) << "Symbol" << std::setw(10) << "Addend" << std::endl;
         for ( int j = 0; j < reloc_table_ref.size(); j++) {
+            fout << std::showbase << std::internal << std::setfill('0');
             if ( reloc_table_ref[j]->offset == 0 ) fout << "0x00000000";
             else fout << std::setw(10) << reloc_table_ref[j]->offset;
-            fout << std::noshowbase << std::internal << std::setfill(' ') << std::left;
-            fout << std::setw(10) << ( reloc_table_ref[j]->type == R_32 ? "R_32" : "R_32S" ); 
-            fout << std::setw(8) << reloc_table_ref[j]->symbol;
-            fout << std::showbase << std::internal << std::setfill('0') << std::left;
+            fout << " ";
+            fout << std::noshowbase << std::setfill(' ') << std::left;
+            fout << std::setw(5) << ( reloc_table_ref[j]->type == R_32 ? "R_32" : "R_32S" ); 
+            fout << std::setw(7) << reloc_table_ref[j]->symbol;
+            fout << std::showbase << std::internal << std::setfill('0');
             if ( reloc_table_ref[j]->addend == 0 ) fout << "0x00000000";
             else fout << std::setw(10) << reloc_table_ref[j]->addend;
             fout << std::endl;

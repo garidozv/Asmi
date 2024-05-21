@@ -20,6 +20,7 @@ class Assembler {
     //std::vector<Reloc_Entry>* relocation_table;
     int32_t current_section;
     bool ended = false;
+    int lineno = 0;
 
     // looks for a symbol in symbol table, returns -1 if not present
     // made so i can implement it more efficiently later on
@@ -45,6 +46,7 @@ class Assembler {
        
     void startBackpatching();
     void resolveLiteralPools();
+    void printError(std::string message);
 
 protected:
 
@@ -59,7 +61,8 @@ public:
 
     ~Assembler();
 
-     void end();
+    void end();
+    void newLine() { lineno++; };
 
     //void startPass();
     void addLabel(std::string label_name);
