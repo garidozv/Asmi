@@ -6,9 +6,9 @@
 #include <stdint.h>
 #include <iomanip>
 
-#include "helper.hpp"
+#include "Helper.hpp"
 #include "AssemblerDefs.hpp"
-#include "Elf32Mod.hpp"
+#include "./elf/Elf32Mod.hpp"
 
 
 class Assembler {
@@ -19,11 +19,6 @@ class Assembler {
     std::vector<Reloc_Entry>* relocation_table;
     int32_t current_section;
     bool ended = false;
-
-    // for testing
-    std::vector<std::string> labels;
-    std::vector<Instruction> instructions;
-    std::vector<Directive> directives;
 
     // looks for a symbol in symbol table, returns -1 if not present
     // made so i can implement it more efficiently later on
@@ -46,8 +41,7 @@ class Assembler {
     void resolveSymbol(std::string symbol);
     void checkSymbol(std::string);
     std::vector<char> processString(std::string string);
-    void end();
-    
+       
     void startBackpatching();
     void resolveLiteralPools();
 
@@ -64,21 +58,13 @@ public:
 
     ~Assembler();
 
+     void end();
+
     //void startPass();
     void addLabel(std::string label_name);
     void addInstruction(Instruction instruction);
     void addDirective(Directive directive);
     //void endPass();
-
-    friend std::ostream& operator<<(std::ostream& os, const Assembler& as) {
-        os << std::endl << "LABELS" << std::endl << "-------------------------------------------" << std::endl;
-        for ( const std::string& lab : as.labels ) os << lab << std::endl;
-        os << std::endl << "INSTRUCTIONS" << std::endl << "-------------------------------------------" << std::endl;
-        for ( const Instruction& instr : as.instructions ) os << instr << std::endl;
-        os << std::endl << "DIRECTIVES" << std::endl << "-------------------------------------------" << std::endl;
-        for ( const Directive& dir : as.directives ) os << dir << std::endl;
-        return os;
-    }
 
     void print();
 };

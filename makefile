@@ -2,8 +2,8 @@ CXX = g++
 YFLAGS = -d -t
 LFILE = lexer.cpp
 YFILE = parser.cpp
-FILES = Assembler.cpp Assembler.hpp
-MISC = helper.cpp
+FILES = Assembler.cpp
+MISC = Helper.cpp
 
 prog: $(LFILE) $(YFILE) $(MISC) $(FILES)
 	$(CXX) -o $@ $^
@@ -15,7 +15,7 @@ $(YFILE): parser.y
 	bison $(YFLAGS) $^
 
 test:
-	cat sample.txt | ./prog
+	cat sample2.txt | ./prog
 	#make -s clean
 
 clean:

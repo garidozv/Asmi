@@ -2,7 +2,7 @@
 
 #include <string>
 #include <vector>
-#include "helper.hpp"
+#include "Helper.hpp"
 #include "Assembler.hpp"
 #include <iostream>
 
@@ -502,8 +502,7 @@ int main() {
 
   yyparse();
 
-  cout << *(assembler) << endl;
-
+  
   return 0;
 }
 

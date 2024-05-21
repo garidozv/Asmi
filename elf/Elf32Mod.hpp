@@ -78,13 +78,6 @@ struct Elf32_Shdr {
 #define SHT_DYNSYM      11
 
 
-// Section header for index 0 in section header table 
-
-Elf32_Shdr SectionHeaderTable_Entry0 = {
-    0, SHT_NULL, 0, 0, 0, 0, SHN_UNDEF, 0
-};
-
-
 // Section attribute flags used for Elf32 section header member sh_flags
 
 #define SHF_WRITE           0x1
@@ -112,12 +105,6 @@ struct Elf32_Sym {
     Elf32_Half          st_shndx;
 };
 
-
-// Symbol table entry for index 0 which is reserved
-
-Elf32_Sym SymbolTable_Entry0 {
-    0, 0, 0, 0, 0, SHN_UNDEF
-};
 
 
 #define STN_UNDEF   0

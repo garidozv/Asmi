@@ -34,25 +34,28 @@ Assembler::Assembler() {
 void Assembler::addLabel(std::string label_name) {
     if ( current_section == -1 ) {
         // Error, a label can not stand on its own, outside of a section
-    } else if ( int entry = findSymbol(label_name) >= 0 ) {
-        std::vector<Symbol>& symbol_table_ref = *symbol_table;
-        if ( symbol_table_ref[entry].defined ) {
-            // Error, symbol with same name already exists
-        } else {
-            // Entry for this symbol already exists in symbol table as a result of forward referencing
-            // Set all the fields and mark it as defined, forward references will be resolved at the end
-            std::vector<Symbol>& symbol_table_ref = *symbol_table;
-            symbol_table_ref[entry].section = current_section;
-            symbol_table_ref[entry].offset = LC;
-            // If the forward reference was made because of global directive, we have to preserve the global bind
-            if ( symbol_table_ref[entry].bind != STB_GLOBAL ) symbol_table_ref[entry].bind = STB_LOCAL;
-            symbol_table_ref[entry].defined = true;
-            // flink and contents are already nullptr
-        }
     } else {
-        // Entry for this symbol doesnt exist in symbol table so we have to add it
-        addSymbol(label_name, STB_LOCAL, true);
-        // Default bind is local
+        int entry = findSymbol(label_name);
+        if ( entry >= 0 ) {
+            std::vector<Symbol>& symbol_table_ref = *symbol_table;
+            if ( symbol_table_ref[entry].defined ) {
+                // Error, symbol with same name already exists
+            } else {
+                // Entry for this symbol already exists in symbol table as a result of forward referencing
+                // Set all the fields and mark it as defined, forward references will be resolved at the end
+                std::vector<Symbol>& symbol_table_ref = *symbol_table;
+                symbol_table_ref[entry].section = current_section;
+                symbol_table_ref[entry].offset = LC;
+                // If the forward reference was made because of global directive, we have to preserve the global bind
+                if ( symbol_table_ref[entry].bind != STB_GLOBAL ) symbol_table_ref[entry].bind = STB_LOCAL;
+                symbol_table_ref[entry].defined = true;
+                // flink and contents are already nullptr
+            }
+        } else {
+            // Entry for this symbol doesnt exist in symbol table so we have to add it
+            addSymbol(label_name, STB_LOCAL, true);
+            // Default bind is local
+        }
     }
 }
 
@@ -75,7 +78,7 @@ void Assembler::addWordToCurentSection(uint32_t word) {
     LC += 4;
 }
 
-int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_section = false, uint32_t section = -1, uint32_t offset = -1) {
+int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_section, uint32_t section, uint32_t offset) {
     int entry = symbol_table->size();
 
     Symbol sym;
@@ -417,12 +420,12 @@ void Assembler::addInstruction(Instruction instruction) {
         }
         }
     }
-    instructions.push_back(instruction); // testing
 }
 
 void Assembler::checkSymbol(std::string symbol) {
     std::vector<Symbol> &symbol_table_ref = *symbol_table;
-    if ( int entry = findSymbol(symbol) > 0 ) {                
+    int entry = findSymbol(symbol);
+    if ( entry > 0 ) {                
         if ( symbol_table_ref[entry].defined && symbol_table_ref[entry].section != -1) {
             // -1 is just a placeholder, it should check if symbol belongs to ABS section, or in other words, check if symbol is constant
             // Symbol is not constant, so we report an error
@@ -468,8 +471,8 @@ void Assembler::resolveSymbol(std::string symbol) {
     // resolve all the forward literal symbol references belonging to that symbol
     
     std::vector<Symbol> &symbol_table_ref = *symbol_table;
-
-    if ( int entry = findSymbol(symbol) > 0 ) {                
+    int entry = findSymbol(symbol);
+    if ( entry > 0 ) {                
         if ( symbol_table_ref[entry].defined ) {
             // If defined, we only have to create a relocation entry
             Reloc_Entry reloc;
@@ -492,7 +495,7 @@ void Assembler::resolveSymbol(std::string symbol) {
             ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
             fr_entry->section = current_section;
             fr_entry->offset = LC;
-            fr_entry->type = WORD;
+            fr_entry->type = REGULAR;
             fr_entry->next = symbol_table_ref[entry].flink;
             symbol_table_ref[entry].flink = fr_entry;
         }
@@ -504,7 +507,7 @@ void Assembler::resolveSymbol(std::string symbol) {
         fr_entry->section = current_section;
         fr_entry->offset = LC;
         fr_entry->next = nullptr;
-        fr_entry->type = WORD;
+        fr_entry->type = REGULAR;
         symbol_table_ref[new_entry].flink = fr_entry;
     }
 }
@@ -540,7 +543,8 @@ void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Ins
     // that this forward reference is result of symbol used as an operand in an instruction
     // and in case that the section is same it also tells backpatcher which opcode to use
     std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(current_section).symbol_literal_table; 
-    if ( int entry = findSymbol(symbol) > 0 ) {
+    int entry = findSymbol(symbol);
+    if ( entry > 0 ) {
         if ( type == OPERAND ) {
             // If type is OPERAND add it directly to symbol literal table
             LiteralRef_Entry* lr = new LiteralRef_Entry();
@@ -586,37 +590,49 @@ void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Ins
 
 
 void Assembler::addDirective(Directive directive) {
-    if ( current_section == -1 ) {
+    if ( current_section == -1 && (directive.type == Types::WORD || directive.type == Types::SKIP || directive.type == Types::ASCII) ) {
         // Error, a directive can not stand on its own, outside of a section
     } else {
         switch (directive.type) {
-        case Types::GLOBAL: {
+       case Types::GLOBAL: {
+            // Iterate through list of symbols
             // If symbol is not present in symbol table, we will add an entry with bind set to global and mark it as undefined?
             // In opposite case, we will just set the bind in corresponding entry to global
-            if ( int entry = findSymbol(directive.symbol) > 0 ) {
-                std::vector<Symbol>& symbol_table_ref = *symbol_table;
-                symbol_table_ref[entry].bind = STB_GLOBAL;
-            } else {
-                addSymbol(directive.symbol, STB_GLOBAL, false, false, 0, 0);
+            std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
+            std::vector<Symbol>& symbol_table_ref = *symbol_table;
+
+            for ( std::string& symbol : elems ) {
+                int entry = findSymbol(symbol);
+                if ( entry > 0 ) {
+                    symbol_table_ref[entry].bind = STB_GLOBAL;
+                } else {
+                    addSymbol(symbol, STB_GLOBAL, false, false, 0, 0);
+                }
             }
             break;
         }
         case Types::EXTERN: {
-            // Add a new entry in symbol table for this extern symbol
+            // Add a new entry in symbol table for each extern symbol in list
             // TODO - check if symbol was already defined
-            addSymbol(directive.symbol, STB_GLOBAL, true, false, 0, 0);
-            // defined is set to true - This is the difference between extern symbol and forward referenced global symbol
+            std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
+
+            for ( std::string& symbol : elems ) {
+                addSymbol(symbol, STB_GLOBAL, true, false, 0, 0);
+                // defined is set to true - This is the difference between extern symbol and forward referenced global symbol
+            }
             break;
         }
         case Types::SECTION: {
-            if ( int entry = findSymbol(directive.symbol) > 0 ) {
-                // Error, section(or any other symbol) with same name already defined
-            } {
-                int entry = addSymbol(directive.symbol, STB_LOCAL, true, true);
+            int entry = findSymbol(directive.symbol);
+            if ( entry > 0 ) {
+                std::cout << "Error: Redefinition of section \"" << directive.symbol << "\"" << std::endl;
+		        exit(-1); 
+            } else {
+                int new_entry = addSymbol(directive.symbol, STB_LOCAL, true, true);
 
                 // Reset LC and set current_section
                 LC = 0;
-                current_section = entry; 
+                current_section = new_entry; 
             }
             break;
         }
@@ -667,22 +683,20 @@ void Assembler::addDirective(Directive directive) {
         case Types::END: {
             ended = true;
             // Ends the process of assembling
-            // TODO - Start backpatching, finish up all the literal pools and make an object file
             startBackpatching();
             resolveLiteralPools();
-            // write into file
+            print();
+            // TODO - write into file
             break;
         }
         default:
             break;
         }
     }
-
-    directives.push_back(directive);    // testing
 }
 
 
-std::vector<char> processString(std::string string) {
+std::vector<char> Assembler::processString(std::string string) {
     std::vector<char> res;
     for(int i = 0; i < string.length(); i++) {
         if ( string[i] == '\\' && i != string.length() - 1) {
@@ -735,7 +749,7 @@ void Assembler::startBackpatching() {
             
             for ( ForwardRef_Entry* forward_ref = symbol_table_ref[i].flink; forward_ref; forward_ref = forward_ref->next ) {
                 switch (forward_ref->type) {
-                case WORD: {
+                case REGULAR: {
                     // regular forward reference to write symbols value into one word
                     // TODO - constant symbols wont need relocation, but for now it will always produce relocation entry
                     Reloc_Entry reloc;
@@ -802,8 +816,9 @@ void Assembler::startBackpatching() {
                     else {
                         // The reference and symbol are not in same section or offset can't fit in 12b
                         // We add this reference to symbol literal table with key being referenced symbol
+			            std::cout << forward_ref->instr << std::endl;
                         std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(forward_ref->section).symbol_literal_table;
-                        LiteralRef_Entry* lr = new LiteralRef_Entry();
+			            LiteralRef_Entry* lr = new LiteralRef_Entry();
                         lr->offset = forward_ref->offset;
                         lr->next = nullptr;
                         if ( symbol_literal_table_ref.find(i) == symbol_literal_table_ref.end() ) {
@@ -815,17 +830,9 @@ void Assembler::startBackpatching() {
                     }
                     break;
                 }
-                }
-                // Free all the forward reference structures
-                // TODO - do this in destructor
-                ForwardRef_Entry* temp = symbol_table_ref[i].flink, *prev = nullptr;
-                while ( temp ) {
-                    if ( prev ) delete prev;
-                    prev = temp;
-                    temp = temp->next;
-                }
-                if ( prev ) delete prev;              
+                }          
             }
+		// TODO - free forward reference structures
 
         }
     }
@@ -837,7 +844,7 @@ void Assembler::resolveLiteralPools() {
     // For entries in symbol literal pool we will also have to generate relocation entries
 
     std::vector<Symbol>& symbol_table_ref = *symbol_table;
-    for ( int i = 0; i < symbol_table_ref.size(); i++ ) {
+    for ( int i = 1; i < symbol_table_ref.size(); i++ ) {
         // We will know that symbol represents a section if his index is equal to his section field
         if ( symbol_table_ref[i].section != i ) continue;
 
@@ -943,21 +950,21 @@ void Assembler::print() {
     << std::setw(8) << "Section" << std::setw(3) << "Def" << std::endl;
     for ( int i = 0; i < symbol_table_ref.size(); i++) {
         std::cout << std::setw(4) << i << std::setw(15) << symbol_table_ref[i].name << std::setw(10) << symbol_table_ref[i].offset
-        << std::setw(5) << (symbol_table_ref[i].bind == STB_GLOBAL ? "G" : (symbol_table_ref[i].bind != STB_GLOBAL ? "N" : "L" ) )
+        << std::setw(5) << (symbol_table_ref[i].bind == STB_GLOBAL ? "G" : (symbol_table_ref[i].bind != STB_LOCAL ? "N" : "L" ) )
         << std::setw(8) << symbol_table_ref[i].section << std::setw(3) << ( symbol_table_ref[i].defined == true ? "1" : "0" ) << std::endl;
     }
 
     std::cout << std::endl << "SECTIONS" << std::endl << "------------------------------------------------" << std::endl;
 
-    for ( int i = 0; i < symbol_table_ref.size(); i++) {
+    for ( int i = 1; i < symbol_table_ref.size(); i++) {
         if ( symbol_table_ref[i].section != i ) continue;
         std::cout << "\"" << symbol_table_ref[i].name << "\":" << std::endl;
 
         std::vector<unsigned char>& contents_ref = *symbol_table_ref[i].contents;
         for ( int j = 0; j < contents_ref.size(); j += 4 ) {
-            uint32_t word = (uint32_t)contents_ref[j] | ((uint32_t)contents_ref[j+1] << 8) || ((uint32_t)contents_ref[j+2] << 16) || ((uint32_t)contents_ref[j+3] << 24);
+            uint32_t word = (uint32_t)contents_ref[j] | ((uint32_t)contents_ref[j+1] << 8) | ((uint32_t)contents_ref[j+2] << 16) | ((uint32_t)contents_ref[j+3] << 24);
             std::cout << " | " << std::setw(15) << word;    
-            if ( !(j % 16) ) std::cout << std::endl;
+            if ( j != 0 &&  !((j+4) % 16) ) std::cout << std::endl;
         }
         std::cout << std::endl;
     }

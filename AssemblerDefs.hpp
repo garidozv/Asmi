@@ -112,6 +112,27 @@ struct Directive {
     }
 };
 
+
+enum ForwardRef_Type { REGULAR, OPERAND, OPERAND_JMP, OPERAND_CALL, OPERAND_BEQ,
+                         OPERAND_BNE, OPERAND_BGT, OPERAND_LD, OPERAND_ST, CONSTANT };
+// OPERAND_INSTR - symbols value is used as an operand in an INSTR instruction - backpatcher maybe has to modify written isntruction
+// OPERAND - like previous, with only difference being that backpatcher wont be trying to fit the literal into instructions displacement field
+// REGULAR - regular forward ref of symbol that has to be inserted at given offset
+// CONSTANT - symbols value has to be inserted into instruction as displacement - check if constant and if it can fit in 12b
+
+struct ForwardRef_Entry {
+    uint32_t section;           // Section in which forward reference occured
+    uint32_t offset;            // Offset at which forward reference occured
+    ForwardRef_Type type;       // Indicates the type of forward reference that has to be resolved during backpatching
+    Instruction instr;          // Instruction used for OPERAND type references  
+    ForwardRef_Entry* next;
+};
+
+struct LiteralRef_Entry {
+    uint32_t offset;
+    LiteralRef_Entry* next;
+};
+
 struct Symbol {
     std::string name;
     uint32_t section;
@@ -134,25 +155,6 @@ struct Reloc_Entry {
     uint32_t addend;
 };
 
-enum ForwardRef_Type { WORD, OPERAND, OPERAND_JMP, OPERAND_CALL, OPERAND_BEQ,
-                         OPERAND_BNE, OPERAND_BGT, OPERAND_LD, OPERAND_ST, CONSTANT };
-// OPERAND_INSTR - symbols value is used as an operand in an INSTR instruction
-// OPERAND - like previous, with only difference being that backpatcher wont be trying to fit the literal into instructions displacement field
-// WORD - regular forward ref of symbol that has to be inserted at give offset
-// CONSTANT - symbols value has to be inserted into instruction as displacement - check if constant and if it can fir in 12b
-
-struct ForwardRef_Entry {
-    uint32_t section;           // Section in which forward reference occured
-    uint32_t offset;            // Offset at which forward reference occured
-    ForwardRef_Type type;       // Indicates the type of forward reference that has to be resolved during backpatching
-    Instruction instr;          // Instruction used for OPERAND type references  
-    ForwardRef_Entry* next;
-};
-
-struct LiteralRef_Entry {
-    uint32_t offset;
-    LiteralRef_Entry* next;
-};
 
 /*
 class LiteralTable {
