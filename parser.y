@@ -92,7 +92,7 @@ Assembler* assembler = Assembler::getInstance();
 
 %%
 
-input:
+input: { assembler->end(); }
 | line input;
 
 line:
@@ -361,7 +361,7 @@ instruction:
 	delete $4;
 	$$ = instr;
 }
-| BEQ GPR COMMA GPR COMMA operand {
+| BEQ GPR COMMA GPR COMMA jmpcallop {
 	struct Instruction* instr = new struct Instruction();
 	instr->type = Types::BEQ;
 	instr->reg1 = Helper::parseReg(*($2));
@@ -372,7 +372,7 @@ instruction:
 	delete $6;
 	$$ = instr;
 }
-| BNE GPR COMMA GPR COMMA operand {
+| BNE GPR COMMA GPR COMMA jmpcallop {
 	struct Instruction* instr = new struct Instruction();
 	instr->type = Types::BNE;
 	instr->reg1 = Helper::parseReg(*($2));
@@ -383,7 +383,7 @@ instruction:
 	delete $6;
 	$$ = instr;
 }
-| BGT GPR COMMA GPR COMMA operand {
+| BGT GPR COMMA GPR COMMA jmpcallop {
 	struct Instruction* instr = new struct Instruction();
 	instr->type = Types::BGT;
 	instr->reg1 = Helper::parseReg(*($2));

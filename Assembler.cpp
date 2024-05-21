@@ -16,6 +16,7 @@ Assembler::~Assembler() {
     if ( assembler != nullptr ) {
         delete assembler;
     }
+    // TODO - go through every symbol and if section delete contents vector and literal pool map
     delete symbol_table;
     delete relocation_table;
 }
@@ -34,14 +35,20 @@ void Assembler::addLabel(std::string label_name) {
     if ( current_section == -1 ) {
         // Error, a label can not stand on its own, outside of a section
     } else if ( int entry = findSymbol(label_name) >= 0 ) {
-        // Entry for this symbol already exists in symbol table as a result of forward referencing
-        // Set all the fields and mark it as defined, forward references will be resolved at the end
         std::vector<Symbol>& symbol_table_ref = *symbol_table;
-        symbol_table_ref[entry].section = current_section;
-        symbol_table_ref[entry].offset = LC;
-        symbol_table_ref[entry].bind = STB_LOCAL;
-        symbol_table_ref[entry].defined = true;
-        // flink and contents are already nullptr
+        if ( symbol_table_ref[entry].defined ) {
+            // Error, symbol with same name already exists
+        } else {
+            // Entry for this symbol already exists in symbol table as a result of forward referencing
+            // Set all the fields and mark it as defined, forward references will be resolved at the end
+            std::vector<Symbol>& symbol_table_ref = *symbol_table;
+            symbol_table_ref[entry].section = current_section;
+            symbol_table_ref[entry].offset = LC;
+            // If the forward reference was made because of global directive, we have to preserve the global bind
+            if ( symbol_table_ref[entry].bind != STB_GLOBAL ) symbol_table_ref[entry].bind = STB_LOCAL;
+            symbol_table_ref[entry].defined = true;
+            // flink and contents are already nullptr
+        }
     } else {
         // Entry for this symbol doesnt exist in symbol table so we have to add it
         addSymbol(label_name, STB_LOCAL, true);
@@ -77,6 +84,7 @@ int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_s
     sym.defined = defined;
     sym.contents = nullptr;
     sym.literal_table = nullptr;
+    sym.symbol_literal_table = nullptr;
     sym.flink = nullptr;
 
     if ( is_section ) {
@@ -84,6 +92,7 @@ int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_s
         sym.offset = 0;
         sym.contents = new std::vector<uint8_t>();
         sym.literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
+        sym.symbol_literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
     } else {
         sym.section = (section == -1) ? current_section : section;
         sym.offset = (offset == -1) ? LC : offset;
@@ -200,98 +209,69 @@ void Assembler::addInstruction(Instruction instruction) {
         }
         case Types::CSRRD: {
             // opcode is 0x90YX0000 where X represents system register and Y general purpose register
-            uint32_t opcode = makeOpcode(0x90, instruction.reg2, instruction.reg1, 0, 0); 
+            // - 16 for system register because my register name parser gives them values 16, 17 and 18 (should be 0, 1 and 2)
+            uint32_t opcode = makeOpcode(0x90, instruction.reg2, instruction.reg1 - 16, 0, 0); 
             addWordToCurentSection(opcode);
             break;
         }
         case Types::CSRWR: {
             // opcode is 0x94YX0000 where Y represents system register and X general purpose register
-            uint32_t opcode = makeOpcode(0x94, instruction.reg2, instruction.reg1, 0, 0); 
+            uint32_t opcode = makeOpcode(0x94, instruction.reg2 - 16, instruction.reg1, 0, 0); 
             addWordToCurentSection(opcode);
             break;
         }
         case Types::CALL: case Types::JMP: {
-            if ( instruction.op.type == Types::LIT_DIR ) {
-                storeLiteral(instruction.op.literal);
-            } else {    // Types::SYM_DIR
-                storeSymbolLiteral(instruction.op.symbol);
+            uint32_t ocmod1 = instruction.type == Types::CALL ? 0x21 : 0x38;
+            uint32_t ocmod2 = instruction.type == Types::CALL ? 0x20 : 0x30;
+            ForwardRef_Type ref_type = instruction.type == Types::CALL ? OPERAND_CALL : OPERAND_JMP;
+            if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                // Literal can fit in 12b
+                // opcode for JMP where literal can fit in D is 0x30000DDD 
+                // opcode for CALL where literal can fit in D is 0x20000DDD where D represents the literal
+                uint32_t opcode = makeOpcode(ocmod2, 0, 0, 0, instruction.op.literal);
+                addWordToCurentSection(opcode);
+            } else {
+                if ( instruction.op.type == Types::LIT_DIR ) {
+                    storeLiteral(instruction.op.literal); 
+                } else {    // Types::SYM_DIR
+                    storeSymbolLiteral(instruction.op.symbol, ref_type, instruction);
+                    // If during the process of backpatching it is determined that both symbol and this isntruction are in the same section
+                    // offset between those two will be insereted into 12 dispalcement bits, and different opcode will be used
+                }
+                // opcode for JMP is 0x38F00DDD
+                // opcode for CALL is 0x21F00DDD 
+                // where D represents displacement to corresponding entry in literal pool which will be added during backpatching
+                // This opcode will be overwriten in case described above
+                uint32_t opcode = makeOpcode(ocmod1, 15, 0, 0, 0);
+                addWordToCurentSection(opcode);
             }
-            // opcode for JMP is 0x38F00DDD
-            // opcode for CALL is 0x21F00DDD 
-            // where D represents displacement to corresponding entry in literal pool which will be added during backpatching
-            uint32_t ocmod = instruction.type == Types::CALL ? 0x21 : 0x38;
-            uint32_t opcode = makeOpcode(ocmod, 15, 0, 0, 0);
-            addWordToCurentSection(opcode);
             break;
         }
         case Types::BEQ: case Types::BGT: case Types::BNE: {
-            uint32_t ocmod = 0x30 | (instruction.type == Types::BEQ ? 0x9 : ( instruction.type == Types::BNE ? 0xA : 0xB ) );
-            switch (instruction.op.type) {
-            case Types::LIT: case Types::SYM: {
-                if (instruction.type == Types::LIT) {
-                    storeLiteral(instruction.op.literal);
-                } else {
-                    storeSymbolLiteral(instruction.op.symbol);
-                }
-                // opcode for BTT with direct literal/symbol immediate addressing mode is 0x3TFXYDDD where X and Y represent the two registers being comapred
-                // and D displacement to corresponding entry in literal pool which will be added during backpatching
-                uint32_t opcode = makeOpcode(ocmod, 15, instruction.reg1, instruction.reg2, 0);
-                addWordToCurentSection(opcode);
-                break;
-            }
-            case Types::LIT_DIR: case Types::SYM_DIR: {
-                if (instruction.type == Types::LIT) {
-                    storeLiteral(instruction.op.literal);
-                } else {
-                    storeSymbolLiteral(instruction.op.symbol);
-                }
-                // opcode for BTT with direct literal/symbol addressing mode is 0x3TFXYDDD + 0x3TFXY000 where X and Y represent the two registers being comapred
-                // and D displacement to corresponding entry in literal pool which will be added during backpatching
-                uint32_t opcode = makeOpcode(ocmod, 15, instruction.reg1, instruction.reg2, 0);
-                // This instruction/addresing mod combination takes up two bytes, the first one containing displacement to literal pool
-                // and second one not, but since the displacement will be added later on, opcode are the same here
-                // Forward literal reference entry will be created only for the first word(which is added at the current LC)
-                addWordToCurentSection(opcode);
-                addWordToCurentSection(opcode);
-                break;
-            }
-            case Types::REG: {
-                // opcode for BTT with register addressing mode is 0x3TZXY000 where X and Y represent the two registers being comapred
-                // and Z the register which holds an address
-                // this addessing mod is the only one with different mods for opcodes
-                ocmod = 0x30 | (instruction.type == Types::BEQ ? 0x1 : ( instruction.type == Types::BNE ? 0x2 : 0x3 ) );
-                uint32_t opcode = makeOpcode(ocmod, instruction.op.reg, instruction.reg1, instruction.reg2, 0);
-                addWordToCurentSection(opcode);
-                break;
-            }
-            case Types::REG_DIR: {
-                // opcode for BTT with register indirect addresing mode is 0x3TZXY000 where X and Y represent the two registers being comapred
-                // and Z the register which holds a memory address of an actual address
-                uint32_t opcode = makeOpcode(ocmod, instruction.op.reg, instruction.reg1, instruction.reg2, 0);
-                addWordToCurentSection(opcode);
-                break;
-            }
-            case Types::REG_LIT: {
-                // opcode for BTT with base register addressing mode is 0x3TZXYDDD where X and Y represent the two registers being comapred,
-                // Z the base register, and D an immediate literal being added to base register
-                if ( instruction.op.literal > 0xfff ) {
-                    // Error, immediate value for this type of addressing has to fit in 12 bits
-                }
-                uint32_t opcode = makeOpcode(ocmod, instruction.op.reg, instruction.reg1, instruction.reg2, instruction.op.literal);
-                addWordToCurentSection(opcode);
-                break;
-            }
-            case Types::REG_SYM: {
-                resolveSymbol(instruction.op.symbol, DELIMETER);
+            uint32_t ocmod1 = 0x30 | (instruction.type == Types::BEQ ? 0x9 : ( instruction.type == Types::BNE ? 0xA : 0xB ) );
+            uint32_t ocmod2 = 0x30 | (instruction.type == Types::BEQ ? 0x1 : ( instruction.type == Types::BNE ? 0x2 : 0x3 ) );
+            ForwardRef_Type ref_type = (instruction.type == Types::BEQ ? OPERAND_BEQ : ( instruction.type == Types::BNE ? OPERAND_BNE : OPERAND_BGT ));
 
-                // opcode for BTT with base register addressing mode is 0x3TZXYDDD where X and Y represent the two registers being comapred,
-                // Z the base register, and D an immediate symbol literal being added to base register
-                uint32_t opcode = makeOpcode(ocmod, instruction.op.reg, instruction.reg1, instruction.reg2, 0);
+            if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                // Literal can fit in 12b
+                // opcode for BTT when literal operand can fit in 12b is 0x3T0XYDDD where X and Y represent the two registers being comapred
+                // and D the literal value
+                uint32_t opcode = makeOpcode(ocmod2, 0, instruction.reg1, instruction.reg2, instruction.op.literal);
                 addWordToCurentSection(opcode);
-                break;
-            }
+            } else {
+                if ( instruction.op.type == Types::LIT_DIR ) {
+                    storeLiteral(instruction.op.literal); 
+                } else {    // Types::SYM_DIR
+                    storeSymbolLiteral(instruction.op.symbol, ref_type, instruction);
+                    // If during the process of backpatching it is determined that both symbol and this isntruction are in the same section
+                    // offset between those two will be insereted into 12 dispalcement bits, and different opcode will be used
+                }
+                // opcode for BTT with direct literal/symbol addressing mode is 0x3TFXYDDD where X and Y represent the two registers being comapred
+                // and D displacement to corresponding entry in literal pool which will be added during backpatching
+                uint32_t opcode = makeOpcode(ocmod1, 15, instruction.reg1, instruction.reg2, 0);
+                addWordToCurentSection(opcode);
+            }   
             break;
-            }
         }
         case Types::ST: {
             if ( instruction.op.type == Types::LIT || instruction.op.type == Types::SYM ) {
@@ -299,15 +279,22 @@ void Assembler::addInstruction(Instruction instruction) {
             } else {
                 switch (instruction.op.type) {
                 case Types::LIT_DIR: case Types::SYM_DIR: {
-                    if (instruction.type == Types::LIT) {
-                        storeLiteral(instruction.op.literal);
+                    if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                        // opcode for ST with direct literal addressing mode is 0x8000XDDD where X represents a register being stored
+                        // and D the literal address 
+                        uint32_t opcode = makeOpcode(0x80, 0, 0, instruction.reg1, instruction.op.literal);
+                        addWordToCurentSection(opcode);
                     } else {
-                        storeSymbolLiteral(instruction.op.symbol);
+                        if (instruction.op.type == Types::LIT) {
+                            storeLiteral(instruction.op.literal);
+                        } else {
+                            storeSymbolLiteral(instruction.op.symbol, OPERAND_ST, instruction);
+                        }
+                        // opcode for ST with indirect literal/symbol addressing mode is 0x82F0XDDD where X represents a register being stored
+                        // and D displacement to corresponding entry in literal pool which will be added during backpatching
+                        uint32_t opcode = makeOpcode(0x82, 15, 0, instruction.reg1, 0);
+                        addWordToCurentSection(opcode);
                     }
-                    // opcode for ST with indirect literal/symbol addressing mode is 0x82F0XDDD where X represents a register being stored
-                    // and D displacement to corresponding entry in literal pool which will be added during backpatching
-                    uint32_t opcode = makeOpcode(0x82, 15, 0, instruction.reg1, 0);
-                    addWordToCurentSection(opcode);
                     break;
                 }
                 case Types::REG: {
@@ -325,7 +312,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 case Types::REG_LIT: {
                     // opcode for ST with base register addressing mode is 0x80Y0XDDD where X represents a register being stored,
                     // Y the base register and D an immediate literal being added to base register 
-                    if ( instruction.op.literal > 0xfff ) {
+                    if ( !(instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff) ) {
                         // Error, immediate value for this type of addressing has to fit in 12 bits
                     }
                     uint32_t opcode = makeOpcode(0x80, instruction.op.reg, 0, instruction.reg1, instruction.op.literal);
@@ -333,7 +320,7 @@ void Assembler::addInstruction(Instruction instruction) {
                     break;
                 }
                 case Types::REG_SYM: {
-                    resolveSymbol(instruction.op.symbol, DELIMETER);
+                    checkSymbol(instruction.op.symbol);
 
                     // opcode for ST with base register addressing mode is 0x80Y0XDDD where X represents a register being stored,
                     // Y the base register and D an immediate symbol literal being added to base register 
@@ -348,30 +335,48 @@ void Assembler::addInstruction(Instruction instruction) {
         case Types::LD: {
             switch (instruction.op.type) {
             case Types::LIT: case Types::SYM: {
-                if (instruction.type == Types::LIT) {
-                    storeLiteral(instruction.op.literal);
+                if ( instruction.op.type == Types::LIT && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                    // opcode for LD with literal immediate addressing mode is 0x91X00DDD where X represents the register being written to
+                    // and D the literal being written
+                    uint32_t opcode = makeOpcode(0x91, instruction.reg1, 0, 0, instruction.op.literal);
+                    addWordToCurentSection(opcode);
                 } else {
-                    storeSymbolLiteral(instruction.op.symbol);
+                    if (instruction.op.type == Types::LIT) {
+                        storeLiteral(instruction.op.literal);
+                    } else {
+                        storeSymbolLiteral(instruction.op.symbol, OPERAND_LD, instruction);
+                    }
+                    // opcode for LD with direct literal/symbol immediate addressing mode is 0x92XF0DDD where X represents the register being written to
+                    // and D displacement to corresponding entry in literal pool which will be added during backpatching
+                    uint32_t opcode = makeOpcode(0x92, instruction.reg1, 15, 0, 0);
+                    addWordToCurentSection(opcode);
                 }
-                // opcode for LD with direct literal/symbol immediate addressing mode is 0x92XF0DDD where X represents the register being written to
-                // and D displacement to corresponding entry in literal pool which will be added during backpatching
-                uint32_t opcode = makeOpcode(0x92, instruction.reg1, 15, 0, 0);
-                addWordToCurentSection(opcode);
                 break;
             }
             case Types::LIT_DIR: case Types::SYM_DIR: {
-                if (instruction.type == Types::LIT) {
-                    storeLiteral(instruction.op.literal);
+
+                if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                    // opcode for LD with direct literal addressing mode when literal can fit in 12b is 0x92X00DDD
+                    // where X represents the register being written to and D the literal value
+                    uint32_t opcode = makeOpcode(0x92, instruction.reg1, 0, 0, instruction.op.literal);
                 } else {
-                    storeSymbolLiteral(instruction.op.symbol);
+                    // It is also possible to fit this instruction/addresing mode combination in 1 word if the operand is symbol if it is
+                    // determined that symbol is in same section and offset can fit in 12 bits
+                    // But, that would require for backpatcher to insert dummy instruction in place of instructions inserted here
+                    // So, to keep it simple, if the operand is symbol, its value will always be in lietal pool and the isntruciton will tkae up two words
+                    if (instruction.op.type == Types::LIT) {
+                        storeLiteral(instruction.op.literal);
+                    } else {
+                        storeSymbolLiteral(instruction.op.symbol, OPERAND, instruction);
+                    }
+                    // opcode for LD with direct literal/symbol addressing mode is 0x92XF0DDD + 0x92XX0000 where X represents the register being written to
+                    // and D displacement to corresponding entry in literal pool which will be added during backpatching
+                    uint32_t opcode1 = makeOpcode(0x92, instruction.reg1, 15, 0, 0),
+                            opcode2 = makeOpcode(0x92, instruction.reg1, instruction.reg1, 0, 0);
+                    // Forward literal reference entry will be created only for the first word(which is added at the current LC)
+                    addWordToCurentSection(opcode1);
+                    addWordToCurentSection(opcode2);
                 }
-                // opcode for LD with direct literal/symbol addressing mode is 0x92XF0DDD + 0x92XX0000 where X represents the register being written to
-                // and D displacement to corresponding entry in literal pool which will be added during backpatching
-                uint32_t opcode1 = makeOpcode(0x92, instruction.reg1, 15, 0, 0),
-                         opcode2 = makeOpcode(0x92, instruction.reg1, instruction.reg1, 0, 0);
-                // Forward literal reference entry will be created only for the first word(which is added at the current LC)
-                addWordToCurentSection(opcode1);
-                addWordToCurentSection(opcode2);
                 break;
             }
             case Types::REG: {
@@ -391,7 +396,7 @@ void Assembler::addInstruction(Instruction instruction) {
             case Types::REG_LIT: {
                 // opcode for LD with base register addressing mode is 0x92XY0DDD where X represents the register being written to,
                 // Y the base register, and D an immediate literal being added to base register
-                if ( instruction.op.literal > 0xfff ) {
+                if ( !(instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff) ) {
                     // Error, immediate value for this type of addressing has to fit in 12 bits
                 }
                 uint32_t opcode = makeOpcode(0x92, instruction.reg1, instruction.op.reg, 0, instruction.op.literal);
@@ -399,7 +404,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 break;
             }
             case Types::REG_SYM: {
-                resolveSymbol(instruction.op.symbol, DELIMETER);
+                checkSymbol(instruction.op.symbol);
 
                 // opcode for LD with base register addressing mode is 0x92XY0DDD where X represents the register being written to,
                 // Y the base register, and D an immediate symbol literal being added to base register
@@ -415,18 +420,52 @@ void Assembler::addInstruction(Instruction instruction) {
     instructions.push_back(instruction); // testing
 }
 
-void Assembler::resolveSymbol(std::string symbol, ForwardRef_Type type) {
-    // TODO - ..
-    // Since our symbols can only have non constant values for now, this type of addressing will always require an relocation entry
-    // because values are bound to change during the process of linking
-    // Size of symbol value has to fit into 12 bits, so that has to be checked during backpatching as well
+void Assembler::checkSymbol(std::string symbol) {
+    std::vector<Symbol> &symbol_table_ref = *symbol_table;
+    if ( int entry = findSymbol(symbol) > 0 ) {                
+        if ( symbol_table_ref[entry].defined && symbol_table_ref[entry].section != -1) {
+            // -1 is just a placeholder, it should check if symbol belongs to ABS section, or in other words, check if symbol is constant
+            // Symbol is not constant, so we report an error
+            // TODO - error handling function
+            std::cout << "Error: non constant symbol can't be offset in base register addressing" << std::endl;
+            exit(-1);
+        }    
+        else {
+            // In every other case we add forward reference and move on
+            // Even if defined, backpatcher will resolve it
+            ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
+            fr_entry->section = current_section;
+            fr_entry->offset = LC;
+            fr_entry->type = CONSTANT;
+            fr_entry->next = symbol_table_ref[entry].flink;
+            symbol_table_ref[entry].flink = fr_entry;
+        }
+    } else {
+        // Symbol does not exist yet, add an undefined symbol entry and forward reference
+        int new_entry = addSymbol(symbol, 0, false, false, 0, 0);
 
-    // Check if symbol exists in symbol table, if it does(and is defined) we will use symbol value to initalize it
+        ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
+        fr_entry->section = current_section;
+        fr_entry->offset = LC;
+        fr_entry->next = nullptr;
+        fr_entry->type = CONSTANT;
+        symbol_table_ref[new_entry].flink = fr_entry;
+    }
+}
+
+void Assembler::resolveSymbol(std::string symbol) {
     // Since we are only working with non constant symbols(their value is their address), we will always have to have relocation for the symbols
     // TODO - constant symbols
     // If it exists but is not defined, we will add this location to the forward reference list of this symbol
     // If it does not exist we will add a new entry with this location in its forward reference list
     // During the process of backaptching the relocation entries will have to be added
+
+    // The previous comment is wrong
+    // We won't be checking if symbols value exists in literal table, because that value belongs to real literal and should not change
+    // whereas literal belonging to symbol will always change and will have relocation entry refering to it
+    // So, when processing symbol values that should be stored in a pool we don't check already existing literals
+    // but we put it in pool right away and assign a relocation entry to it, and then, we only use that entry in pool to 
+    // resolve all the forward literal symbol references belonging to that symbol
     
     std::vector<Symbol> &symbol_table_ref = *symbol_table;
 
@@ -443,7 +482,7 @@ void Assembler::resolveSymbol(std::string symbol, ForwardRef_Type type) {
             }
             reloc.offset = LC;
             reloc.section = current_section;
-            reloc.type = type == DELIMETER ? R_12S : R_32;
+            reloc.type = R_32;
             
             relocation_table->push_back(reloc);
         } else {
@@ -453,7 +492,7 @@ void Assembler::resolveSymbol(std::string symbol, ForwardRef_Type type) {
             ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
             fr_entry->section = current_section;
             fr_entry->offset = LC;
-            fr_entry->type = type;
+            fr_entry->type = WORD;
             fr_entry->next = symbol_table_ref[entry].flink;
             symbol_table_ref[entry].flink = fr_entry;
         }
@@ -465,7 +504,7 @@ void Assembler::resolveSymbol(std::string symbol, ForwardRef_Type type) {
         fr_entry->section = current_section;
         fr_entry->offset = LC;
         fr_entry->next = nullptr;
-        fr_entry->type = type;
+        fr_entry->type = WORD;
         symbol_table_ref[new_entry].flink = fr_entry;
     }
 }
@@ -490,26 +529,58 @@ void Assembler::storeLiteral(uint32_t literal) {
     }
 }
 
-void Assembler::storeSymbolLiteral(std::string symbol) {
+void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Instruction instr) {
     // We will only be adding forward reference to this symbol here and nothing else
     // Symbols value will be added to literal table and displacement will be patched during backpatching
+
+    // During the process of backpatching if it is concluded that symbol and forward reference occure in the same section
+    // the displacement has to be filled with offset, and the opcode has to be changed
+
+    // The type of these forward references is used to singalize backpatcher
+    // that this forward reference is result of symbol used as an operand in an instruction
+    // and in case that the section is same it also tells backpatcher which opcode to use
+    std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(current_section).symbol_literal_table; 
     if ( int entry = findSymbol(symbol) > 0 ) {
-        std::vector<Symbol>& symbol_table_ref = *symbol_table;
-        ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
-        fr_entry->section = current_section;
-        fr_entry->offset = LC;
-        fr_entry->next = symbol_table_ref[entry].flink;
-        fr_entry->type = OPERAND;   // It referes to operand
-        symbol_table_ref[entry].flink = fr_entry;
+        if ( type == OPERAND ) {
+            // If type is OPERAND add it directly to symbol literal table
+            LiteralRef_Entry* lr = new LiteralRef_Entry();
+            lr->offset = LC;
+            lr->next = nullptr;
+            if ( symbol_literal_table_ref.find(entry) == symbol_literal_table_ref.end() ) {
+                symbol_literal_table_ref[entry] = lr; 
+            } else {
+                lr->next = symbol_literal_table_ref[entry];
+                symbol_literal_table_ref[entry] = lr;
+            }
+        } else {            
+            std::vector<Symbol>& symbol_table_ref = *symbol_table;
+            ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
+            fr_entry->section = current_section;
+            fr_entry->offset = LC;
+            fr_entry->next = symbol_table_ref[entry].flink;
+            fr_entry->type = type; 
+            fr_entry->instr = instr;
+            symbol_table_ref[entry].flink = fr_entry;
+        }
     } else {
         int new_entry = addSymbol(symbol, 0, false, false, 0, 0);
 
-        ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
-        fr_entry->section = current_section;
-        fr_entry->offset = LC;
-        fr_entry->next = nullptr;
-        fr_entry->type = OPERAND;   // It referes to operand
-        symbol_table->at(new_entry).flink = fr_entry;
+        if ( type == OPERAND ) {
+            // If type is OPERAND add it directly to symbol literal table
+            LiteralRef_Entry* lr = new LiteralRef_Entry();
+            lr->next = nullptr;
+            lr->offset = LC;
+            symbol_literal_table_ref[new_entry] = lr;
+        } else {  
+            ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
+            fr_entry->section = current_section;
+            fr_entry->offset = LC;
+            fr_entry->next = nullptr;
+            fr_entry->type = type;
+            fr_entry->instr = instr;
+            symbol_table->at(new_entry).flink = fr_entry;
+        }
+
     }
 }
 
@@ -543,10 +614,6 @@ void Assembler::addDirective(Directive directive) {
             } {
                 int entry = addSymbol(directive.symbol, STB_LOCAL, true, true);
 
-                if ( current_section != -1 ) {
-                    // TODO - add literal pool - no, it will be done at the end
-                }
-
                 // Reset LC and set current_section
                 LC = 0;
                 current_section = entry; 
@@ -566,7 +633,7 @@ void Assembler::addDirective(Directive directive) {
                 }
             } else {
                 for ( std::string& symbol : elems ) {
-                    resolveSymbol(symbol, WORD);
+                    resolveSymbol(symbol);
                     // Reserve space in section
                     addWordToCurentSection(0);
                 }
@@ -584,12 +651,13 @@ void Assembler::addDirective(Directive directive) {
         case Types::ASCII: {
             // Does not null terminate the string
             std::vector<unsigned char>& section_contents = *(symbol_table->at(current_section).contents);
-            // TODO - special symbols '/n' ...
+            std::vector<char> string_vector = processString(directive.symbol);
             // Start from last character because of little endian
-            for ( int i = directive.symbol.length(); i >= 0 ; i-- ) {
-                section_contents.push_back((unsigned char)directive.symbol[i]);
+            // TODO - maybe stop at first \0 if present
+            for ( int i = string_vector.size(); i >= 0 ; i-- ) {
+                section_contents.push_back(string_vector[i]);
             }
-            LC += directive.symbol.length(); // if there were special chars, it will be less than length
+            LC += string_vector.size();
             break;
         }
         case Types::EQU: {
@@ -597,8 +665,12 @@ void Assembler::addDirective(Directive directive) {
             break;
         }
         case Types::END: {
+            ended = true;
             // Ends the process of assembling
             // TODO - Start backpatching, finish up all the literal pools and make an object file
+            startBackpatching();
+            resolveLiteralPools();
+            // write into file
             break;
         }
         default:
@@ -608,3 +680,286 @@ void Assembler::addDirective(Directive directive) {
 
     directives.push_back(directive);    // testing
 }
+
+
+std::vector<char> processString(std::string string) {
+    std::vector<char> res;
+    for(int i = 0; i < string.length(); i++) {
+        if ( string[i] == '\\' && i != string.length() - 1) {
+            switch(string[i+1]) {
+                case 'n': res.push_back('\n'); break;
+                case 't': res.push_back('\t'); break;
+                case '0': res.push_back('\0'); break;
+                case 'v': res.push_back('\v'); break;
+                case 'b': res.push_back('\b'); break;
+                case 'r': res.push_back('\r'); break;
+                case 'f': res.push_back('\f'); break;
+                case 'a': res.push_back('\a'); break;
+                case '\'': res.push_back('\''); break;
+                case '\"': res.push_back('\"'); break;
+                case '\\': res.push_back('\\'); break;
+                default: res.push_back('\\'); i--;
+            }
+            i++;
+        } else res.push_back(string[i]);
+    }
+
+    return res;
+}
+
+void Assembler::end() {
+    if ( !ended ) {
+        std::cout << "Error: missing .end directive" << std::endl;
+        exit(-1);
+    }
+}
+
+
+void Assembler::startBackpatching() {
+    // Go through every entry in symbol table and resolve all the forward references
+    // If the type of forward reference is OPERAND, we have to add the value of that symbol into literal table
+    // together with relocation for that literal table entry
+    // If the type is DISPLACEMENT, we have to chek if symbol is defined, if not we have to report an error, otherwise,
+    // we make a relcoation entry for that location
+    // If the type is word, we have to add a relocation entry
+    std::vector<Symbol>& symbol_table_ref = *symbol_table;
+    // We start from 1 because of default section which is in first entry is of no importance here
+    for ( int i = 1; i < symbol_table_ref.size(); i++) {
+        if ( !symbol_table_ref[i].defined ) {
+            // Every symbol present in symbol table has to be defined after first pass
+            // If it's in symbol table that means that it has been referenced at some point in program
+            std::cout << "Error: symbol \"" << symbol_table_ref[i].name << "\" is not defined" << std::endl;
+            exit(-1);
+        } else {
+            // Here, we go through reference list and process them based on forward reference type
+            
+            for ( ForwardRef_Entry* forward_ref = symbol_table_ref[i].flink; forward_ref; forward_ref = forward_ref->next ) {
+                switch (forward_ref->type) {
+                case WORD: {
+                    // regular forward reference to write symbols value into one word
+                    // TODO - constant symbols wont need relocation, but for now it will always produce relocation entry
+                    Reloc_Entry reloc;
+                    reloc.addend = 0;
+                    if ( symbol_table_ref[i].bind == STB_GLOBAL ) {
+                        reloc.symbol = i;
+                    } else {
+                        reloc.section = symbol_table_ref[i].section;
+                        reloc.addend += symbol_table_ref[i].offset;
+                    }
+                    reloc.offset = forward_ref->offset;
+                    reloc.section = forward_ref->section;
+                    reloc.type = R_32;
+                    
+                    relocation_table->push_back(reloc);
+                    break;
+                }
+                case CONSTANT: {
+                    if ( symbol_table_ref[i].section != -1 ) {
+                        // Again, -1 is placeholder for ABS section
+                        // If the symbol is not constant we report an error
+                        std::cout << "Error: non constant symbol \"" << symbol_table_ref[i].name << "\" can't be used as offset in base register addressing" << std::endl;
+                        exit(-1);
+                    } else {
+                        // Symbol is constant, so we just add it into 12 displacement bits of instruction this reference points to
+                        // We also have to check if it can fit in 12b
+                        if ( !(symbol_table_ref[i].offset <= 0x7ff && symbol_table_ref[i].offset >= ~0x7ff) ) {
+                            std::cout << "Error: symbol \"" << symbol_table_ref[i].name << "\", used as offset in base register addressing, can't fit in 12 bits" << std::endl;
+                            exit(-1);
+                        } else {
+                            insertDisplacement(forward_ref->section, forward_ref->offset, symbol_table_ref[i].offset);
+                        }
+                    }
+                    break;
+                }
+                default: {
+                    // All the OPERAND types go here
+                    int32_t offset = (int32_t)symbol_table_ref[i].offset - ((int32_t)forward_ref->offset + 4 );
+                    uint32_t opcode = 0;
+                    switch(forward_ref->type) {
+                        // opcode for CALL where offset to symbol can fit in D is 0x20F00DDD where represents D the offset to that symbol
+                        case OPERAND_CALL: opcode = makeOpcode(0x20, 15, 0, 0, offset); break;
+                        // opcode for JMP where offset to symbol can fit in D is 0x30F00DDD where represents D the offset to that symbol
+                        case OPERAND_JMP: opcode = makeOpcode(0x30, 15, 0, 0, offset); break;
+                        // opcode for ST with symbol direct addresing mode where offset to symbol can fit in D is 0x80F0XDDD where represents D the offset to that symbol
+                        case OPERAND_ST: opcode = makeOpcode(0x80, 15, 0, forward_ref->instr.reg1, offset); break;
+                        // opcode for LD with symbol immediate addressing mode where offset to symbol can fit in D is 0x91XF0DDD where represents D the offset to that symbol
+                        case OPERAND_LD: opcode = makeOpcode(0x91, forward_ref->instr.reg1, 15, 0, offset); break;
+                        // opcode for BTT where offset to symbol can fit in D is 0x3TFXYDDD where D represents D the offset to that symbol
+                        case OPERAND_BEQ: opcode = makeOpcode(0x31, 15, forward_ref->instr.reg1, forward_ref->instr.reg2, offset); break;
+                        case OPERAND_BNE: opcode = makeOpcode(0x32, 15, forward_ref->instr.reg1, forward_ref->instr.reg2, offset); break;
+                        case OPERAND_BGT: opcode = makeOpcode(0x33, 15, forward_ref->instr.reg1, forward_ref->instr.reg2, offset); break;
+                    }
+
+                    // The literal symbol values that have to be resolved in all the OPERAND types will not be added to pool via litera table
+                    // rather, they will be added to symbol literal table and dealt with later on
+                    // This is done because the way real literals and literals that originate from symbols are handled is different
+
+                    // TODO - USE SIGNED TYPES WHERE NEEDED
+                    if ( forward_ref->section == symbol_table_ref[i].section && offset <= 0x7ff && offset >= ~0x7ff) {                     
+                        // Patch the instruction with new opcode
+                        patchWord(forward_ref->section, forward_ref->offset, opcode);
+                    }
+                    else {
+                        // The reference and symbol are not in same section or offset can't fit in 12b
+                        // We add this reference to symbol literal table with key being referenced symbol
+                        std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(forward_ref->section).symbol_literal_table;
+                        LiteralRef_Entry* lr = new LiteralRef_Entry();
+                        lr->offset = forward_ref->offset;
+                        lr->next = nullptr;
+                        if ( symbol_literal_table_ref.find(i) == symbol_literal_table_ref.end() ) {
+                            symbol_literal_table_ref[i] = lr; 
+                        } else {
+                            lr->next = symbol_literal_table_ref[i];
+                            symbol_literal_table_ref[i] = lr;
+                        }
+                    }
+                    break;
+                }
+                }
+                // Free all the forward reference structures
+                // TODO - do this in destructor
+                ForwardRef_Entry* temp = symbol_table_ref[i].flink, *prev = nullptr;
+                while ( temp ) {
+                    if ( prev ) delete prev;
+                    prev = temp;
+                    temp = temp->next;
+                }
+                if ( prev ) delete prev;              
+            }
+
+        }
+    }
+}
+
+void Assembler::resolveLiteralPools() {
+    // We have to add all the literal and symbol literal pools at the end of their respective sections and insert offsets in instructions 
+    // that reference literals from the pool
+    // For entries in symbol literal pool we will also have to generate relocation entries
+
+    std::vector<Symbol>& symbol_table_ref = *symbol_table;
+    for ( int i = 0; i < symbol_table_ref.size(); i++ ) {
+        // We will know that symbol represents a section if his index is equal to his section field
+        if ( symbol_table_ref[i].section != i ) continue;
+
+        // Since current_section and LC are not important anymore i will them to store the section(and its LC) whose pools are being added
+        // We do this so we can use addWordToCurrentSection function which operates on these valeus
+        // LC of the section is its size after first pass
+        LC = symbol_table_ref[i].contents->size();
+        current_section = i;
+
+        // First we deal with regular literal pool
+
+        for ( auto& entry : *symbol_table_ref[i].literal_table ) {
+            // We go through every entry in literal table, add the literal to section and patch all the instructions that reference it
+            addWordToCurentSection(entry.first);
+
+            for ( LiteralRef_Entry* ref = entry.second; ref; ref = ref->next) {
+                // Location of entry for this literal is LC - 4 (because addWordToCurentSection function updates LC)
+                int32_t offset = (LC - 4) - ((int32_t)ref->offset + 4);
+                insertDisplacement(current_section, ref->offset, offset);
+            }
+
+            // TODO - delete literal tables and references in them in destructor
+        }
+
+        // Symbol literal table
+
+        for ( auto& entry : *symbol_table_ref[i].symbol_literal_table ) {
+            // We go through every entry in symbol literal table, reserve space for it and add relocation entry
+            // then we patch patch all the instructions that reference it
+            
+            addWordToCurentSection(0);
+
+            for ( LiteralRef_Entry* ref = entry.second; ref; ref = ref->next) {
+                // Location of entry for this literal is LC - 4 (because addWordToCurentSection function updates LC)
+                int32_t offset = (LC - 4) - ((int32_t)ref->offset + 4);
+                insertDisplacement(current_section, ref->offset, offset);
+
+                Reloc_Entry reloc;
+                reloc.addend = 0;
+                if ( symbol_table_ref[entry.first].bind == STB_GLOBAL ) {
+                    reloc.symbol = entry.first;
+                } else {
+                    reloc.section = symbol_table_ref[entry.first].section;
+                    reloc.addend += symbol_table_ref[entry.first].offset;
+                }
+                reloc.offset = LC - 4;
+                reloc.section = current_section;
+                reloc.type = R_32;
+                
+                relocation_table->push_back(reloc);
+                
+            }
+
+            // TODO - delete literal tables and references in them in destructor
+        }
+
+    }
+
+    
+}
+
+
+void Assembler::insertDisplacement(uint32_t section, uint32_t offset, uint32_t value) {
+    std::vector<unsigned char>& contents_ref = *symbol_table->at(section).contents;
+    //                  -------------------------------------------------------------------------------------------------
+    // Instriction:     |   OC      |   MOD     |   RegA    |   RegB    |   RegC    |   Disp2   |   Disp1   |   Disp0   |
+    //                  -------------------------------------------------------------------------------------------------
+    // In memory:
+    //                  -------------------------------------------------------------------------------------------------
+    // Offset:          |           +0          |           +1          |           +2          |           +3          |
+    //                  -------------------------------------------------------------------------------------------------
+    // Bytes:           |   Disp1   |   Disp0   |   RegC    |   Disp2   |   RegA    |   RegB    |   OC      |   MOD     |
+    //                  -------------------------------------------------------------------------------------------------
+
+    // Put lower byte of value in first byte at offset which represents lower byte of displacement
+    contents_ref[offset] = (unsigned char)(value & 0xff);
+    // Put remaining nibble of value in lower nibble of byte at offset + 1 which represents highest 4 bits of dispalcement
+    contents_ref[offset + 1] &= 0xf0;
+    contents_ref[offset + 1] |= (unsigned char)((value >> 8) & 0xf);
+}
+
+void Assembler::patchWord(uint32_t section, uint32_t offset, uint32_t word) {
+    std::vector<unsigned char>& contents_ref = *symbol_table->at(section).contents;
+
+    for ( int i = 0; i < 4; i++) {
+        // Data is stored in little endian, so we start from lowest byte
+        unsigned char byte = word;
+        word >>= 8;
+        contents_ref[offset + i] = byte; 
+    }
+}
+
+
+void Assembler::print() {
+    
+    std::vector<Symbol>& symbol_table_ref = *symbol_table;
+
+    std::cout << std::endl << "SYMBOL TABLE" << std::endl << "------------------------------------------------" << std::endl;
+
+    std::cout << std::showbase << std::hex;
+
+    std::cout << std::setw(4) << "Ind" << std::setw(15) << "Name" << std::setw(10) << "Value" << std::setw(5) << "Bind" 
+    << std::setw(8) << "Section" << std::setw(3) << "Def" << std::endl;
+    for ( int i = 0; i < symbol_table_ref.size(); i++) {
+        std::cout << std::setw(4) << i << std::setw(15) << symbol_table_ref[i].name << std::setw(10) << symbol_table_ref[i].offset
+        << std::setw(5) << (symbol_table_ref[i].bind == STB_GLOBAL ? "G" : (symbol_table_ref[i].bind != STB_GLOBAL ? "N" : "L" ) )
+        << std::setw(8) << symbol_table_ref[i].section << std::setw(3) << ( symbol_table_ref[i].defined == true ? "1" : "0" ) << std::endl;
+    }
+
+    std::cout << std::endl << "SECTIONS" << std::endl << "------------------------------------------------" << std::endl;
+
+    for ( int i = 0; i < symbol_table_ref.size(); i++) {
+        if ( symbol_table_ref[i].section != i ) continue;
+        std::cout << "\"" << symbol_table_ref[i].name << "\":" << std::endl;
+
+        std::vector<unsigned char>& contents_ref = *symbol_table_ref[i].contents;
+        for ( int j = 0; j < contents_ref.size(); j += 4 ) {
+            uint32_t word = (uint32_t)contents_ref[j] | ((uint32_t)contents_ref[j+1] << 8) || ((uint32_t)contents_ref[j+2] << 16) || ((uint32_t)contents_ref[j+3] << 24);
+            std::cout << " | " << std::setw(15) << word;    
+            if ( !(j % 16) ) std::cout << std::endl;
+        }
+        std::cout << std::endl;
+    }
+}
+

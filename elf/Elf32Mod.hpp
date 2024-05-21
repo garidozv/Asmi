@@ -188,7 +188,6 @@ struct Elf32_Rela {
 #define R_PC32      1
 #define R_32        2
 #define R_32S       3
-#define R_12S       4
 
 // Elf32 program header structure
 // TODO - check this

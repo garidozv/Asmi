@@ -28,6 +28,8 @@ mem[sp] <= pc
 pc <= mem[pc + D]
 D - pomjeraj od pc(pocetka naredne instrukcije) do ulaza u bazenu literala koji drzi ovaj operand
 
+ovo je ako literal/simbol ne moze da stane u 12b
+
 ako je u pitanju literal, samo se dodaje ulaz u bazen literala(ako vec ne postoji)
 ulaz u bazenu literala, pored vrijednosti literala, sadrzi nesto slicno forward ref listi, koja ce morati da se prodje pri pravljenju bazena
 i upisu odgovarajuci pomjeraji do tog ulaza
@@ -37,9 +39,35 @@ pri backaptchingu ako se naidje na ovakav forward ref, dodaje se novi ulaz u tab
 jer ce pri backaptchingu, posto je poznata adresa bazena, biti upisan pomjeraj u instrukciju
 i posto cu za sada samo da koristim apsolutne adrese uvijek ce morati da se doda i relokacioni zapis za taj ulaz u bazenu literala
 
+CALL literal			0x20000DDD
+sp <= sp - 4
+mem[sp] <= pc
+pc <= D
+
+ako literal moze da stane u 12b, onda ga stavljamo u D i koristimo ovaj opcode
+
+CALL symbol				0x20F00DDD
+sp <= sp - 4
+mem[sp] <= pc
+pc <= pc + D
+
+ako se simbol nalazi u istoj sekciji, koristimo ovaj opcode, gdje je D pomjeraj do tog simbola
+takodje, pomjeraj treba da stane u 12b
+
 
 JMP literal/symbol		0x38F00DDD
 pc <= mem[pc + D]
+
+ovo je ako literal ne moze da stane u 12b, ili simbol nije u istoj sekciji
+
+JMP literal				0x30000DDD
+pc <= D
+ako literal moze da stane u 12b
+
+JMP symbol				0x30F00DDD
+pc <= pc + D
+ako je simbol u istoj sekciji
+
 
 
 RET			0x93FE0004
@@ -109,6 +137,13 @@ mem[r[y] + D] <= r[x]	// D je u sklopu instrukcije, a ne u bazenu literala - mor
 ST RX, [RY + SYMBOL]		0x80Y0XDDD
 mem[r[y] + D] <= r[x]	// D je u sklopu instrukcije, a ne u bazenu literala - mora biti poznata vrijednost i mora biti 12b maks
 
+ST RX, LITERAL		0x8000XDDD
+mem[D] <= r[x]
+ako literal moze da stane u 12b
+
+ST RX, SYMBOL		0x80F0XDDD
+mem[pc + D] <= r[x]
+ako je simbol u istoj sekciji i moze da stane u 12b
 
 
 LD $LITERAL/$SYMBOL, RX		0x92XF0DDD
@@ -131,21 +166,33 @@ r[x] <= mem[r[y] + D]	// D je u sklopu instrukcije, a ne u bazenu literala - mor
 LD [RY + SYMBOL], RX		0x92XY0DDD
 r[x] <= mem[r[y] + D]	// D je u sklopu instrukcije, a ne u bazenu literala - mora biti poznata vrijednost i mora biti 12b maks
 
+LD $LITERAL, RX		0x91X00DDD
+r[x] <= D 	
+ako literal moze da stane u 12b
+
+LD $SYMBOL, RX		0x91XF0DDD
+r[x] <= pc + D
+ako je simbol u istoj sekciji i pomjeraj D moze da stane u 12b
+
+LD LITERAL, RX		0x92X00DDD
+r[x] <= mem[D]		
+ako literal moze da stane u 12b
+
+LD SYMBOL, RX		0x92XF0DDD
+r[x] <= mem[pc + D]		
+ako je simbol u istoj sekciji i pomjeraj D moze da stane u 12b
 
 
-BEQ RX, RY, $LITERAL/$SYMBOL		0x39FXYDDD	|	0x3AFXYDDD	|	0x3BFXYDDD
+
+BEQ RX, RY, LITERAL/SYMBOL		0x39FXYDDD	|	0x3AFXYDDD	|	0x3BFXYDDD
 if ( r[x] == r[y] ) pc <= mem[pc + D]		// literal/simbol je u bazenu literala
 
-BEQ RX, RY, LITERAL/SYMBOL			0x39FXYDDD	|	0x3AFXYDDD	| 	0x3BFXYDDD
-									0x39FXY000	|	0X3AFXY000	|	0x3BFXY000
-if ( r[x] == r[y] ) pc <= mem[pc + D]		// literal/simbol je u bazenu
-if ( r[x] == r[y] ) pc <= mem[pc]	
 
-BEQ RX, RY, RZ						0x31ZXY000	|	0x32ZXY000	|	0x33ZXY000
-if ( r[x] == r[y] ) pc <= r[z]	
+BEQ RX, RY, LITERAL				0x310XYDDD	|	0x320XYDDD	|	0x330XYDDD
+if ( r[x] == r[y] ) pc <= D	
+ako literal moze da stane u 12b
 
-BEQ RX, RY, [RZ]					0x39ZXY000	|	0x3AZXY000	|	0x3BZXY000
-if ( r[x] == r[y] ) pc <= mem[r[z]]
+BEQ RX, RY, SYMBOL					0x31FXYDDD	|	0x32FXYDDD	|	0x33FXYDDD
+if ( r[x] == r[y] ) pc <= pc + D	
+ako je simbol u istoj sekciji i moze da stane u 12b
 
-BEQ RX, RY, [RZ + LITERAL/SYMBOL]	0x39ZXYDDD	|	0x3AZXYDDD	| 	0x3BZXYDDD
-if ( r[x] == r[y] ) pc <= mem[r[z] + D]

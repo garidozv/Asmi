@@ -121,8 +121,11 @@ struct Symbol {
     ForwardRef_Entry* flink;
     std::vector<uint8_t>* contents;   // Contents of a section if the symbol represents one
     std::unordered_map<uint32_t, LiteralRef_Entry*>* literal_table; // Literal table of a section if symbol represents one
+    std::unordered_map<uint32_t, LiteralRef_Entry*>* symbol_literal_table; // Table of literals originated from symbols - keys are symbol indexes
 };
 
+// I won't be using PC relocation types, since all references to symbols in different sections will use absolute address
+// and references in same section will be resolved by assembler and wont have relocation entry
 struct Reloc_Entry {
     uint32_t section;
     uint32_t offset;
@@ -131,15 +134,18 @@ struct Reloc_Entry {
     uint32_t addend;
 };
 
-enum ForwardRef_Type { WORD, OPERAND, DELIMETER };
-// operand - symbols value has to be added to literal table
-// word - regular forward ref of symbol that has to be inserted at give offset
-// delimeter - symbols value has to be inserted as delimeter into instruction
+enum ForwardRef_Type { WORD, OPERAND, OPERAND_JMP, OPERAND_CALL, OPERAND_BEQ,
+                         OPERAND_BNE, OPERAND_BGT, OPERAND_LD, OPERAND_ST, CONSTANT };
+// OPERAND_INSTR - symbols value is used as an operand in an INSTR instruction
+// OPERAND - like previous, with only difference being that backpatcher wont be trying to fit the literal into instructions displacement field
+// WORD - regular forward ref of symbol that has to be inserted at give offset
+// CONSTANT - symbols value has to be inserted into instruction as displacement - check if constant and if it can fir in 12b
 
 struct ForwardRef_Entry {
-    uint32_t section;   // Section in which forward reference occured
-    uint32_t offset;    // Offset at which forward reference occured
-    uint8_t type;          // Indicates the type of forward reference that has to be resolved during backpatching
+    uint32_t section;           // Section in which forward reference occured
+    uint32_t offset;            // Offset at which forward reference occured
+    ForwardRef_Type type;       // Indicates the type of forward reference that has to be resolved during backpatching
+    Instruction instr;          // Instruction used for OPERAND type references  
     ForwardRef_Entry* next;
 };
 
@@ -147,6 +153,48 @@ struct LiteralRef_Entry {
     uint32_t offset;
     LiteralRef_Entry* next;
 };
+
+/*
+class LiteralTable {
+    // Maps literal values to table indexes
+    std::unordered_map<uint32_t, int>* map;
+    std::vector<LiteralRef_Entry*>* table;
+public:
+
+    LiteralTable() {
+        map = new std::unordered_map<uint32_t, int>();
+        table = new std::vector<LiteralRef_Entry*>();
+    }
+
+    void addLiteral(uint32_t value, uint32_t offset) {
+        std::unordered_map<uint32_t, int>& map_ref = *map;
+        std::vector<LiteralRef_Entry*>& table_ref = *table;
+        if ( map->find(value) != map->end() ) {
+            // Literal already exist in literal table, add this location to reference list
+            LiteralRef_Entry* lr = new LiteralRef_Entry();
+            // Since data is stored in little endian, displacement bits will be at the lowest address of this isntructions opcode
+            // First byte stores last byte of displacement
+            // Second bytes high nibble stores first 4 bits of displacement
+            lr->offset = offset;
+            lr->next = table_ref[map_ref[value]];
+            table_ref[map_ref[value]] = lr;
+        } else {
+            // Literal doesn't exist in literal table, so we have to add it with ref list having this location
+            LiteralRef_Entry* lr = new LiteralRef_Entry();
+            lr->next = nullptr;
+            lr->offset = offset;
+            table_ref.push_back(lr);
+            map_ref[value] = table_ref.size() - 1;
+        }
+    }
+
+    // Adds literals without registring their values in map
+    // Used to add symbol literals, because no two symbols or symbol and regular literal can share literal pool entry
+    // Parameter is head of list of literal references that have to be added for 
+    void addSymbolLiteralReferences(LiteralRef_Entry* refs_head) {
+
+    }
+};*/
 
 
 #endif
