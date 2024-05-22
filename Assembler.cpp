@@ -343,6 +343,7 @@ void Assembler::addInstruction(Instruction instruction) {
         case Types::LD: {
             switch (instruction.op.type) {
             case Types::LIT: case Types::SYM: {
+                // TODO - emulator will have to fill with sign when extracting 12 bit signed value from instructions displacement bits
                 if ( instruction.op.type == Types::LIT && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
                     // opcode for LD with literal immediate addressing mode is 0x91X00DDD where X represents the register being written to
                     // and D the literal being written
@@ -489,7 +490,7 @@ void Assembler::resolveSymbol(std::string symbol) {
             if ( symbol_table_ref[entry].bind == STB_GLOBAL ) {
                 reloc->symbol = entry;
             } else {
-                reloc->section = symbol_table_ref[entry].section;
+                reloc->symbol = symbol_table_ref[entry].section;
                 reloc->addend += symbol_table_ref[entry].offset;
             }
             reloc->offset = LC;
@@ -768,7 +769,7 @@ void Assembler::startBackpatching() {
                     if ( symbol_table_ref[i].bind == STB_GLOBAL ) {
                         reloc->symbol = i;
                     } else {
-                        reloc->section = symbol_table_ref[i].section;
+                        reloc->symbol = symbol_table_ref[i].section;
                         reloc->addend += symbol_table_ref[i].offset;
                     }
                     reloc->offset = forward_ref->offset;
@@ -890,22 +891,22 @@ void Assembler::resolveLiteralPools() {
                 // Location of entry for this literal is LC - 4 (because addWordToCurentSection function updates LC)
                 int32_t offset = (LC - 4) - ((int32_t)ref->offset + 4);
                 insertDisplacement(current_section, ref->offset, offset);
-
-                Reloc_Entry* reloc = new Reloc_Entry();
-                reloc->addend = 0;
-                if ( symbol_table_ref[entry.first].bind == STB_GLOBAL ) {
-                    reloc->symbol = entry.first;
-                } else {
-                    reloc->section = symbol_table_ref[entry.first].section;
-                    reloc->addend += symbol_table_ref[entry.first].offset;
-                }
-                reloc->offset = LC - 4;
-                reloc->section = current_section;
-                reloc->type = R_32;
-                
-                symbol_table_ref[current_section].reloc_table->push_back(reloc);
-                //relocation_table->push_back(reloc);
             }
+
+            Reloc_Entry* reloc = new Reloc_Entry();
+            reloc->addend = 0;
+            if ( symbol_table_ref[entry.first].bind == STB_GLOBAL ) {
+                reloc->symbol = entry.first;
+            } else {
+                reloc->symbol = symbol_table_ref[entry.first].section;
+                reloc->addend += symbol_table_ref[entry.first].offset;
+            }
+            reloc->offset = LC - 4;
+            reloc->section = current_section;
+            reloc->type = R_32;
+
+            symbol_table_ref[current_section].reloc_table->push_back(reloc);
+            //relocation_table->push_back(reloc);
 
             // TODO - delete literal tables and references in them in destructor
         }

@@ -1,7 +1,6 @@
 %{
 
 #include <string>
-#include <vector>
 #include "Helper.hpp"
 #include "Assembler.hpp"
 #include <iostream>
@@ -496,14 +495,16 @@ literal_list:
 
 %%
 
-
+/*
 int main() {
+
+	// TODO - check if there is a new line at the end of the file
 
   yyparse();
 
   
   return 0;
-}
+}*/
 
 
 void yyerror(const char* s) {

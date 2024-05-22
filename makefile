@@ -1,12 +1,13 @@
 CXX = g++
+CXXFLAGS = -g -o
 YFLAGS = -d -t
 LFILE = lexer.cpp
 YFILE = parser.cpp
 FILES = Assembler.cpp
-MISC = Helper.cpp
+MISC = Helper.cpp main.cpp
 
 prog: $(LFILE) $(YFILE) $(MISC) $(FILES)
-	$(CXX) -o $@ $^
+	$(CXX) $(CXXFLAGS) $@ $^
 
 $(LFILE): lexer.l
 	flex $^
