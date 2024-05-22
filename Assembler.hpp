@@ -10,12 +10,14 @@
 #include "Helper.hpp"
 #include "AssemblerDefs.hpp"
 #include "./elf/Elf32Mod.hpp"
+#include "./elf/Elf32File.hpp"
 
 
 class Assembler {
 
     int LC;
 
+    // TODO - use Symbol pointer
     std::vector<Symbol>* symbol_table;
     //std::vector<Reloc_Entry>* relocation_table;
     int32_t current_section;
@@ -48,6 +50,9 @@ class Assembler {
     void resolveLiteralPools();
     void printError(std::string message);
 
+    void makeTextFile();
+    void makeObjectFile();
+
 protected:
 
     Assembler();
@@ -64,13 +69,10 @@ public:
     void end();
     void newLine() { lineno++; };
 
-    //void startPass();
     void addLabel(std::string label_name);
     void addInstruction(Instruction instruction);
     void addDirective(Directive directive);
-    //void endPass();
 
-    void print();
 };
 
 

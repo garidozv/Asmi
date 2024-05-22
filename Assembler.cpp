@@ -13,12 +13,50 @@ Assembler* Assembler::getInstance() {
 }
 
 Assembler::~Assembler() {
-    if ( assembler != nullptr ) {
-        delete assembler;
+
+    std::vector<Symbol>& symbol_table_ref = *symbol_table;
+    for ( int i = 0; i < symbol_table_ref.size(); i++ ) {
+        ForwardRef_Entry* curr = symbol_table_ref[i].flink, *next = nullptr;
+        while ( curr ) {
+            next = curr->next;
+            delete curr;
+            curr = next;
+        }
+
+        if ( i == symbol_table_ref[i].section ) {
+            // Symbol represents section so we have to delete contents vector, literal pools and relocation table
+
+            delete symbol_table_ref[i].contents;
+
+            for ( Reloc_Entry* reloc : *symbol_table_ref[i].reloc_table ) {
+                delete reloc;
+            }
+            delete symbol_table_ref[i].reloc_table;
+
+            for ( auto entry : *symbol_table_ref[i].literal_table ) {
+                LiteralRef_Entry* curr = entry.second, *next = nullptr;
+                while( curr ) {
+                    next = curr->next;
+                    delete curr;
+                    curr = next;
+                }
+            }
+            delete symbol_table_ref[i].literal_table;
+
+            for ( auto entry : *symbol_table_ref[i].symbol_literal_table ) {
+                LiteralRef_Entry* curr = entry.second, *next = nullptr;
+                while( curr ) {
+                    next = curr->next;
+                    delete curr;
+                    curr = next;
+                }
+            }
+            delete symbol_table_ref[i].symbol_literal_table;
+        }
     }
-    // TODO - go through every symbol and if section delete contents vector and literal pool map
+
     delete symbol_table;
-    //delete relocation_table;
+
 }
 
 Assembler::Assembler() {
@@ -697,8 +735,8 @@ void Assembler::addDirective(Directive directive) {
             // Ends the process of assembling
             startBackpatching();
             resolveLiteralPools();
-            print();
-            // TODO - write into file
+            makeTextFile();
+            makeObjectFile();
             break;
         }
         default:
@@ -948,7 +986,7 @@ void Assembler::patchWord(uint32_t section, uint32_t offset, uint32_t word) {
 }
 
 
-void Assembler::print() {
+void Assembler::makeTextFile() {
 
     std::ofstream fout("output.txt");
     
@@ -1017,4 +1055,20 @@ void Assembler::print() {
         }
         fout << std::endl;
     }
+
+    fout.close();
+}
+
+
+void Assembler::makeObjectFile() {
+    Elf32File obj_file("output.o", ET_REL);
+    obj_file.addSymbolTable(symbol_table);
+    
+    std::vector<Symbol>& symbol_table_ref = *symbol_table;
+    for ( int i = 1; i < symbol_table_ref.size(); i++ ) {
+        if ( i != symbol_table_ref[i].section ) continue;
+        obj_file.addAssemblerSection(symbol_table_ref[i]);
+    }
+
+    obj_file.writeIntoFile();
 }

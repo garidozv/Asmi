@@ -20,16 +20,14 @@ typedef uint32_t    Elf32_Word;
 // Elf32 header structure
 
 struct Elf32_Ehdr {
-    Elf32_Addr      e_entry;
-    Elf32_Off       e_shoff;
-    Elf32_Half      e_type;     // Moved because of the alignment
-    Elf32_Half      e_phnum;
-    Elf32_Half      e_shnum;
-    Elf32_Half      e_shstrndx;
+    Elf32_Addr      e_entry;    // Starting address of a program(not used in relocatable files)
+    Elf32_Off       e_shoff;    // Offset from beginning fo the file to section header table(offset to program header table is known, because it comes right after header)
+    Elf32_Half      e_type;     // Type of object file
+    Elf32_Half      e_phnum;    // Number of entries in program header table
+    Elf32_Half      e_shnum;    // Number of entries in section header table
+    Elf32_Half      e_strndx;   // Section header table entry associated with string table(only one string table will be used for whole file)
 };
 
-// Elf32 header size in bytes
-#define EHDR_SIZE sizeof(Elf32_Ehdr)
 
 
 // Object file types used for Elf32 header member e_type
@@ -48,15 +46,15 @@ struct Elf32_Ehdr {
 // Elf32 section header structure
 
 struct Elf32_Shdr {
-    Elf32_Word      sh_name;        // Index into section header string table section, whose header is at index specified by e_shstrndx member of ELF32 header
-    Elf32_Word      sh_type;
-    Elf32_Word      sh_flags;
-    Elf32_Addr      sh_addr;
-    Elf32_Off       sh_offset;
-    Elf32_Word      sh_size;
-    Elf32_Word      sh_link;
-    Elf32_Word      sh_info;
-    //Elf32_Word      sh_addralign;?
+    Elf32_Word      sh_name;        // Index into string table section, whose header is at index specified by e_strndx member of ELF32 header
+    Elf32_Word      sh_type;        // Type of section
+    //Elf32_Word      sh_flags;       // Access flags TODO - maybe we dont need this
+    Elf32_Addr      sh_addr;        // Address at which this sections first byte should reside(if it will appear in memory)
+    Elf32_Off       sh_offset;      // Offset from beginning of the file to section contents
+    Elf32_Word      sh_size;        // Section size in bytes
+    Elf32_Word      sh_link;        // for relocation table header sh_link holds section header index of associated symbol table
+    Elf32_Word      sh_info;        // for relocation table header sh_info holds section header index of section to which the relocation applies
+    //Elf32_Word      sh_addralign;?    TODO - do we need this? We can just align everything on 4B
 };
 
 #define SHDR_SIZE sizeof(Elf32_Shdr)
@@ -97,12 +95,12 @@ struct Elf32_Shdr {
 // Elf32 symbol table entry structure
 
 struct Elf32_Sym {
-    Elf32_Word          st_name;
-    Elf32_Addr          st_value;
-    Elf32_Word          st_size;
-    unsigned char       st_info;
-    unsigned char       st_other; // Wont be used, but will keep it because of the alignment 
-    Elf32_Half          st_shndx;
+    Elf32_Word          st_name;    // Index into string table section, whose header is at index specified by e_strndx member of ELF32 header
+    Elf32_Addr          st_value;   // Symbols value
+    Elf32_Word          st_size;    // Symbols size(will probably only be 0)
+    unsigned char       st_info;    // Symbols type and binding attributes
+    //unsigned char       st_other;   // Wont be used, but will keep it because of the alignment 
+    //Elf32_Half          st_shndx;     
 };
 
 
@@ -138,24 +136,13 @@ struct Elf32_Sym {
 #define STT_FILE        4
 
 
-// Elf32 relocation table entry structures
-
-struct Elf32_Rel {
-    Elf32_Addr      r_offset;
-    Elf32_Word      r_info;
-};
+// Elf32 relocation table entry structure
 
 struct Elf32_Rela {
-    Elf32_Addr      r_offset;
-    Elf32_Word      r_info;
-    Elf32_Sword     r_addend;
+    Elf32_Addr      r_offset;   // Location at which to apply relocation action
+    Elf32_Word      r_info;     // Index of associated symbol and type of relocation
+    Elf32_Sword     r_addend;   // Addend
 };
-
-
-/*
-    Entries of type Elf32_Rela contain an explicit addend, while entries of type Elf32_Rel store an explicit addend in the location to be modified
-    We will only be using Elf32_Rela
-*/
 
 
 /*
@@ -170,11 +157,9 @@ struct Elf32_Rela {
 #define ELF32_R_TYPE(i)        ((unsigned char)(i))
 #define ELF32_R_INFO(s, t)     (((s)<<8)+(unsigned char)(t))
 
-// Relocation types
+// Relocation types - for now we only need one
 
-#define R_PC32      1
-#define R_32        2
-#define R_32S       3
+#define R_32        1
 
 // Elf32 program header structure
 // TODO - check this

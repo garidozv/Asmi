@@ -5,7 +5,7 @@
 
 int main() {
   
-  yyin = fopen("./sample2.txt", "r");
+  yyin = fopen("./samples/nivo-a/math.s", "r");
 
   yyparse();
 
