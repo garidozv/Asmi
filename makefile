@@ -4,7 +4,7 @@ YFLAGS = -d -t
 LFILE = lexer.cpp
 YFILE = parser.cpp
 FILES = Assembler.cpp
-MISC = Helper.cpp main.cpp
+MISC = Helper.cpp main.cpp ./elf/Elf32File.cpp
 
 prog: $(LFILE) $(YFILE) $(MISC) $(FILES)
 	$(CXX) $(CXXFLAGS) $@ $^

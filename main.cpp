@@ -5,7 +5,7 @@
 
 int main() {
   
-  yyin = fopen("./samples/nivo-a/math.s", "r");
+  yyin = fopen("./samples/nivo-a/main.s", "r");
 
   yyparse();
 

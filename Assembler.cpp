@@ -533,7 +533,7 @@ void Assembler::resolveSymbol(std::string symbol) {
             }
             reloc->offset = LC;
             reloc->section = current_section;
-            reloc->type = R_32;
+            reloc->type = RELOC_32;
             
             symbol_table_ref[current_section].reloc_table->push_back(reloc);
             //relocation_table->push_back(reloc);
@@ -735,8 +735,7 @@ void Assembler::addDirective(Directive directive) {
             // Ends the process of assembling
             startBackpatching();
             resolveLiteralPools();
-            makeTextFile();
-            makeObjectFile();
+            makeOutputFiles();
             break;
         }
         default:
@@ -812,7 +811,7 @@ void Assembler::startBackpatching() {
                     }
                     reloc->offset = forward_ref->offset;
                     reloc->section = forward_ref->section;
-                    reloc->type = R_32;
+                    reloc->type = RELOC_32;
                     
                     symbol_table_ref[forward_ref->section].reloc_table->push_back(reloc);
                     //relocation_table->push_back(reloc);
@@ -941,7 +940,7 @@ void Assembler::resolveLiteralPools() {
             }
             reloc->offset = LC - 4;
             reloc->section = current_section;
-            reloc->type = R_32;
+            reloc->type = RELOC_32;
 
             symbol_table_ref[current_section].reloc_table->push_back(reloc);
             //relocation_table->push_back(reloc);
@@ -985,7 +984,7 @@ void Assembler::patchWord(uint32_t section, uint32_t offset, uint32_t word) {
     }
 }
 
-
+/*
 void Assembler::makeTextFile() {
 
     std::ofstream fout("output.txt");
@@ -1046,7 +1045,7 @@ void Assembler::makeTextFile() {
             else fout << std::setw(10) << reloc_table_ref[j]->offset;
             fout << " ";
             fout << std::noshowbase << std::setfill(' ') << std::left;
-            fout << std::setw(5) << ( reloc_table_ref[j]->type == R_32 ? "R_32" : "R_32S" ); 
+            fout << std::setw(5) << ( reloc_table_ref[j]->type == RELOC_32 ? "RELOC_32" : "R_32S" ); 
             fout << std::setw(7) << reloc_table_ref[j]->symbol;
             fout << std::showbase << std::internal << std::setfill('0');
             if ( reloc_table_ref[j]->addend == 0 ) fout << "0x00000000";
@@ -1057,10 +1056,10 @@ void Assembler::makeTextFile() {
     }
 
     fout.close();
-}
+}*/
 
 
-void Assembler::makeObjectFile() {
+void Assembler::makeOutputFiles() {
     Elf32File obj_file("output.o", ET_REL);
     obj_file.addSymbolTable(symbol_table);
     
@@ -1070,5 +1069,6 @@ void Assembler::makeObjectFile() {
         obj_file.addAssemblerSection(symbol_table_ref[i]);
     }
 
-    obj_file.writeIntoFile();
+    obj_file.makeBinaryFile();
+    obj_file.makeTextFile();
 }

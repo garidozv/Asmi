@@ -50,8 +50,8 @@ class Assembler {
     void resolveLiteralPools();
     void printError(std::string message);
 
-    void makeTextFile();
-    void makeObjectFile();
+    //void makeTextFile();
+    void makeOutputFiles();
 
 protected:
 

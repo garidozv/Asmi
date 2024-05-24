@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <string>
 #include <fstream>
+#include <iomanip>
 
 /*
     These Elf32 files will have an usual format, with program header table right after the file header
@@ -56,6 +57,38 @@ private:
 
     uint32_t addString(std::string string);
 
+    void printHex(std::ostream& os, uint32_t number, int width, bool prefix = false) {
+        std::ios old_state(nullptr);
+        old_state.copyfmt(os);
+
+        if ( prefix ) os << std::showbase;
+        os << std::hex << std::internal << std::setfill('0');
+
+        // We do this because showbase wont work if number is 0
+        if ( prefix && number == 0 ) os << "0x" << std::setw(width - 2) << "";
+        else os << std::setw(width) << number;
+
+        os.copyfmt(old_state);
+    }
+
+    std::string elf_sym_types[5] {
+        "NOTYP",
+        "OBJCT",
+        "FUNC",
+        "SCTN",
+        "FILE"
+    };
+
+    std::string elf_sym_binds[3] {
+        "LOC",
+        "GLOB",
+        "WEAK"
+    };
+
+    std::string elf_rela_types[1] {
+        "RELOC_32"
+    };
+
 public:
 
     // TODO - copy/move constructors?
@@ -66,8 +99,10 @@ public:
     // TODO - destructor
     ~Elf32File();
 
-    bool writeIntoFile();
+    bool makeBinaryFile();
     bool readFromFile();
+
+    void makeTextFile();
 
 
     void addSymbolTable(std::vector<Symbol>* symbol_table);

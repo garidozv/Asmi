@@ -54,6 +54,7 @@ void Elf32File::addSymbolTable(std::vector<Symbol>* sym_table) {
         symbol->st_size = 0; // For now symbols have unknown size
         symbol->st_value = sym_table_ref[i].offset;
         symbol->st_info = ELF32_ST_INFO(sym_table_ref[i].bind, ( (sym_table_ref[i].section == i) && i != 0 ? STT_SECTION : STT_NOTYPE ));
+        symbol->st_shndx = sym_table_ref[i].section;
         symbol_table->push_back(symbol);
     }
     sections->at(0)->header->sh_size = sym_table->size() * sizeof(Elf32_Sym);
@@ -69,7 +70,7 @@ void Elf32File::addAssemblerSection(Symbol section) {
     //contents_size += section_header->sh_size;
     sections->push_back(section_info);
 
-    Elf32_Shdr* rel_table_shdr = createSectionHeader(section.name + ".rela", SHT_RELA, 0, 0,
+    Elf32_Shdr* rel_table_shdr = createSectionHeader(".rela." + section.name, SHT_RELA, 0, 0,
                                         reloc_table->size()*sizeof(Elf32_Rela), 1, sections->size() - 1);
     // symbol table is at entry 0 - so symbol table has to be first thing thats added into object of elf file
     sections->push_back(new SectionInfo(rel_table_shdr, nullptr));
@@ -92,7 +93,7 @@ void Elf32File::addAssemblerSection(Symbol section) {
 
 
 
-bool Elf32File::writeIntoFile() {
+bool Elf32File::makeBinaryFile() {
     if ( header->e_type == ET_REL ) {
         // First we need to set all the fields that have remained empty and are known now
         header->e_shnum = sections->size();
@@ -251,6 +252,92 @@ bool Elf32File::readFromFile() {
 
     // TODO -
     return true;
+}
+
+void Elf32File::makeTextFile() {
+
+    std::ofstream fout(name + ".readelf");
+    
+    std::vector<Elf32_Sym*>& symbol_table_ref = *symbol_table;
+
+    fout << "Symbol table '.symtab' containts " << symbol_table_ref.size() << " entries:\n";
+    
+    fout << std::left
+         << std::setw(3)    << ""
+         << std::setw(4)    << "Num"
+         << std::setw(10)   << "Value"
+         << std::setw(6)    << "Size"
+         << std::setw(7)    << "Type"
+         << std::setw(6)    << "Bind"
+         << std::setw(5)    << "Ndx"
+                            << "Name\n";
+
+    for ( int i = 0; i < symbol_table->size(); i++) {
+        fout << std::setw(3) << ""
+             << std::setw(2) << std::right << i << ": ";
+        printHex(fout, symbol_table_ref[i]->st_value, 8);
+        fout << "  "
+             << std::setw(4) << symbol_table_ref[i]->st_size << "  " << std::left
+             << std::setw(5) << elf_sym_types[ELF32_ST_TYPE(symbol_table_ref[i]->st_info)] << "  "
+             << std::setw(4) << elf_sym_binds[ELF32_ST_BIND(symbol_table_ref[i]->st_info)] << "  " << std::right
+             << std::setw(3) << (symbol_table_ref[i]->st_shndx == 0 ? "UND" : ( symbol_table_ref[i]->st_shndx == -1 ? "ABS" : std::to_string(symbol_table_ref[i]->st_shndx) ) ) << "  "
+             << string_table->at(symbol_table_ref[i]->st_name) << '\n';
+    }
+
+    fout << '\n';
+
+    for ( int i = 0; i < sections->size(); i++ ) {
+        SectionInfo* sec = sections->at(i);
+        if ( sec->contents == nullptr ) continue;
+
+        fout << "Hex dump of section '" << string_table->at(sec->header->sh_name) << "':\n";
+
+        std::vector<uint8_t>& contents_ref = *sec->contents;
+        for ( int j = 0; j < contents_ref.size(); j += 4 ) {
+            if ( !(j % 16) ) {
+                fout << std::setw(3) << "";
+                printHex(fout, j, 10, true);
+                fout << ": ";
+            }
+
+            uint32_t word = (uint32_t)contents_ref[j] | ((uint32_t)contents_ref[j+1] << 8) | ((uint32_t)contents_ref[j+2] << 16) | ((uint32_t)contents_ref[j+3] << 24);
+            printHex(fout, word, 8);
+
+            if ( j != 0 && j != contents_ref.size() - 1 && !((j + 4) % 16) ) fout << '\n';
+            else fout << " ";
+        }
+
+        fout << "\n\n";
+    }
+
+    for ( int i = 0; i < sections->size(); i++ ) {
+        SectionInfo* sec = sections->at(i);
+        if ( sec->header->sh_type != SHT_RELA || sec->header->sh_size == 0 ) continue;
+
+        std::vector<Elf32_Rela*>& reloc_table_ref = *relocation_tables->find(i)->second; 
+
+        fout << "Relocation section '" << string_table->at(sec->header->sh_name) << "' contains " <<  reloc_table_ref.size() << (reloc_table_ref.size() == 1 ? " entry" : " entries" ) << ":\n";
+
+        fout << std::left
+             << std::setw(3)    << ""
+             << std::setw(10)   << "Offset"
+             << std::setw(10)   << "Type"
+                                << "Value\n";
+
+        for ( int j = 0; j < reloc_table_ref.size(); j++ ) {
+            fout << std::setw(3) << "";
+            printHex(fout, reloc_table_ref[j]->r_offset, 8);
+            fout << "  "
+                 << std::setw(8) << elf_rela_types[ELF32_R_TYPE(reloc_table_ref[j]->r_info)] << "  "
+                 << string_table->at(symbol_table_ref[ELF32_R_SYM(reloc_table_ref[j]->r_info)]->st_name) << " + ";
+            printHex(fout, reloc_table_ref[j]->r_addend, 10, true);
+            fout << '\n';
+        }
+
+        fout << "\n";
+    }
+
+    fout.close();
 }
 
 

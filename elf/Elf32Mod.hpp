@@ -100,7 +100,8 @@ struct Elf32_Sym {
     Elf32_Word          st_size;    // Symbols size(will probably only be 0)
     unsigned char       st_info;    // Symbols type and binding attributes
     //unsigned char       st_other;   // Wont be used, but will keep it because of the alignment 
-    //Elf32_Half          st_shndx;     
+    // TODO - index in symbol table should have nothing to do with section index!!!
+    Elf32_Half          st_shndx;   // Section index(not section header index like in original Elf)     
 };
 
 
@@ -159,7 +160,7 @@ struct Elf32_Rela {
 
 // Relocation types - for now we only need one
 
-#define R_32        1
+#define RELOC_32        0
 
 // Elf32 program header structure
 // TODO - check this
