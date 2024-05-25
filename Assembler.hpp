@@ -24,6 +24,8 @@ class Assembler {
     bool ended = false;
     int lineno = 0;
 
+    std::string output_file_name = "";
+
     // looks for a symbol in symbol table, returns -1 if not present
     // made so i can implement it more efficiently later on
     int findSymbol(std::string symbol_name);
@@ -66,6 +68,7 @@ public:
 
     ~Assembler();
 
+    void setOutputFileName(std::string file_name) { output_file_name = file_name; };
     void end();
     void newLine() { lineno++; };
 

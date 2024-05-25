@@ -54,7 +54,10 @@ void Elf32File::addSymbolTable(std::vector<Symbol>* sym_table) {
         symbol->st_size = 0; // For now symbols have unknown size
         symbol->st_value = sym_table_ref[i].offset;
         symbol->st_info = ELF32_ST_INFO(sym_table_ref[i].bind, ( (sym_table_ref[i].section == i) && i != 0 ? STT_SECTION : STT_NOTYPE ));
-        symbol->st_shndx = sym_table_ref[i].section;
+        // This filed has to hold section header index of section that this symbol belongs to
+        // Here, we will put the value given by assembler because sections have not been added yet
+        // Will have to fix when they are added
+        symbol->st_shndx = sym_table_ref[i].section;    
         symbol_table->push_back(symbol);
     }
     sections->at(0)->header->sh_size = sym_table->size() * sizeof(Elf32_Sym);
@@ -69,6 +72,15 @@ void Elf32File::addAssemblerSection(Symbol section) {
     SectionInfo* section_info = new SectionInfo(section_header, contents);
     //contents_size += section_header->sh_size;
     sections->push_back(section_info);
+
+    int shndx = sections->size() - 1;   // Section header table of this section
+
+    // We iterate through symbol table and fix the section header indexes of every symbol that belongs to this section
+    // including the symbol that represents the section itself
+    // TODO - assembler should do this the right way, so we dont ahve to fix it here 
+    for ( Elf32_Sym* sym : *symbol_table ) {
+        if (sym->st_shndx == section.section ) sym->st_shndx = shndx;
+    }
 
     Elf32_Shdr* rel_table_shdr = createSectionHeader(".rela." + section.name, SHT_RELA, 0, 0,
                                         reloc_table->size()*sizeof(Elf32_Rela), 1, sections->size() - 1);

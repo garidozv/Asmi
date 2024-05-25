@@ -1060,7 +1060,7 @@ void Assembler::makeTextFile() {
 
 
 void Assembler::makeOutputFiles() {
-    Elf32File obj_file("output.o", ET_REL);
+    Elf32File obj_file(( output_file_name == "" ? "output.o" : output_file_name ), ET_REL);
     obj_file.addSymbolTable(symbol_table);
     
     std::vector<Symbol>& symbol_table_ref = *symbol_table;

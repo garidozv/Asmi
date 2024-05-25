@@ -107,6 +107,10 @@ public:
 
     void addSymbolTable(std::vector<Symbol>* symbol_table);
     void addAssemblerSection(Symbol section);
+
+    std::vector<Elf32_Sym*>* getSymbolTable() const { return symbol_table; };
+    std::vector<std::string>* getStringTable() const { return string_table; };
+    Elf32_Shdr* getSectionHeader(uint32_t index) const { return sections->at(index)->header; };
 };
 
 
