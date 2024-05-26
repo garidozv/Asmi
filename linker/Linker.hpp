@@ -9,12 +9,20 @@ class Linker {
 
   // key = section_name
   // value = (start_address, section_size = 0)
-  std::unordered_map<std::string, std::pair<uint32_t, uint32_t>>* memory_map;
+  std::unordered_map<std::string, std::pair<uint32_t, uint32_t>>* memory_map_p; // premapped
+  std::unordered_map<std::string, std::pair<uint32_t, uint32_t>>* memory_map; // rest of the sections
   std::vector<Elf32File*>* files;
   Elf32File* output_file;
 
   // If there are no mappings, starting address is 0
   uint32_t curr_address = 0;
+  unsigned char file_type = ET_EXEC;  // REL or EXEC
+  std::string file_name = "";
+
+  void printError(std::string message) {
+    std::cout << "linker: error : " << message << std::endl;
+    exit(-1);
+  }
 
 protected:
 
@@ -31,7 +39,8 @@ public:
   void startLinking();
   bool addMapping(std::string section_name, uint32_t addr);
   void addFile(std::string file_name);
-
+  void setFileType(unsigned char type) { file_type = type; };
+  void setFileName(std::string name) { file_name = name; };
 };
 
 

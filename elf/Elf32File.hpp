@@ -21,9 +21,23 @@ private:
         Elf32_Shdr* header;
         std::vector<uint8_t>* contents;
 
-        SectionInfo(Elf32_Shdr* section_header, std::vector<uint8_t>* contents) : header(section_header), contents(contents) {
-        };
+        SectionInfo(Elf32_Shdr* section_header, std::vector<uint8_t>* contents) : header(section_header), contents(contents) {};
         ~SectionInfo() {
+            if ( contents ) delete contents;
+            delete header;
+        }
+    };
+
+    struct SegmentInfo {
+        Elf32_Phdr* header;
+        // TODO - SectionInfo instead of these two
+        std::vector<uint8_t>* contents;
+        Elf32_Shdr* starting_section;   // Points to starting section of this segment
+
+        SegmentInfo(Elf32_Phdr* program_header, std::vector<uint8_t>* contents, Elf32_Shdr* sec_header)
+         : header(program_header), contents(contents), starting_section(sec_header) {};
+        ~SegmentInfo() {
+            // Section header will be deleted in SectionInfo
             if ( contents ) delete contents;
             delete header;
         }
@@ -40,9 +54,8 @@ private:
     // List of sections
     std::vector<SectionInfo*>* sections;
 
-    // Since segments that program headers point to consist of already existing sections which are already stored in SectionInfo data structure,
-    // and program headers are not recognized by their name, theres no need for anything else except just a regular vector with program headers
-    std::vector<Elf32_Phdr*>* program_header_table;  
+    // Segments which consist of program header and segment contents
+    std::vector<SegmentInfo*>* segments; 
 
     // Separate fields for symbol table section and relocation table sections
 
@@ -51,9 +64,6 @@ private:
     
     // Section names with corresponding relocation tables
     std::unordered_map<uint32_t, std::vector<Elf32_Rela*>*>* relocation_tables;
-
-
-    inline Elf32_Shdr* createSectionHeader(std::string name, Elf32_Word type, Elf32_Word addr, Elf32_Off offset, Elf32_Word size, Elf32_Word info, Elf32_Word link);
 
     uint32_t addString(std::string string);
 
@@ -108,9 +118,28 @@ public:
     void addSymbolTable(std::vector<Symbol>* symbol_table);
     void addAssemblerSection(Symbol section);
 
+    Elf32_Phdr* createProgramHeader(Elf32_Word type, Elf32_Off offset, Elf32_Addr vaddr, Elf32_Word size);
+    Elf32_Shdr* createSectionHeader(std::string name, Elf32_Word type, Elf32_Word addr, Elf32_Off offset, Elf32_Word size, Elf32_Word info, Elf32_Word link);
+    void addSection(Elf32_Shdr* header, std::vector<uint8_t>* contents) { sections->push_back(new SectionInfo(header, contents)); };
+    void addSegment(Elf32_Phdr* header, std::vector<uint8_t>* contents, Elf32_Shdr* starting_section) { segments->push_back(new SegmentInfo(header, contents, starting_section)); };
+    uint32_t addSymbol(std::string name, Elf32_Addr value, Elf32_Word size, unsigned char info, std::string section);
+
+    void appendToSection(uint32_t index, std::vector<uint8_t>* contents);
+    void patchSectionContents(std::string section_name, uint32_t offset, uint32_t word);
+
+    uint32_t getSectionIndex(std::string section_name);
+
     std::vector<Elf32_Sym*>* getSymbolTable() const { return symbol_table; };
     std::vector<std::string>* getStringTable() const { return string_table; };
     Elf32_Shdr* getSectionHeader(uint32_t index) const { return sections->at(index)->header; };
+    Elf32_Shdr* getSectionHeader(std::string name) { return sections->at(getSectionIndex(name))->header; };
+    std::vector<uint8_t>* getSectionContents(uint32_t index) const { return sections->at(index)->contents; };
+    std::vector<Elf32_Rela*>* getRelocationTable(uint32_t index) const { return relocation_tables->at(index); };
+    uint32_t getNumberOfSections() { return sections->size(); };
+    Elf32_Sym* getSymbol(std::string name);
+    uint32_t getSymbolIndex(std::string name);
+    std::vector<Elf32_Rela*>* getRelocationTable(std::string section_name);
+    Elf32_Shdr* getRelocSectionHeader(std::string section_name);
 };
 
 

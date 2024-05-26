@@ -8,7 +8,7 @@ Elf32File::Elf32File(std::string file_name, Elf32_Half type, bool empty) {
     sections = new std::vector<SectionInfo*>();
     symbol_table = new std::vector<Elf32_Sym*>();
     relocation_tables = new std::unordered_map<uint32_t, std::vector<Elf32_Rela*>*>();
-    program_header_table = new std::vector<Elf32_Phdr*>();
+    segments = new std::vector<SegmentInfo*>();
 
     if ( !empty ) {
         // Add section headers for symbol table and string table
@@ -39,10 +39,103 @@ Elf32_Shdr* Elf32File::createSectionHeader(std::string name, Elf32_Word type, El
     return header;
 }
 
+Elf32_Phdr* Elf32File::createProgramHeader(Elf32_Word type, Elf32_Off offset, Elf32_Addr vaddr, Elf32_Word size) {
+    Elf32_Phdr* header = new Elf32_Phdr();
+    header->p_type = type;
+    header->p_offset = offset;
+    header->p_vaddr = vaddr;
+    header->p_size = size;
+    return header;
+}
+
 uint32_t Elf32File::addString(std::string string) {
     string_table->push_back(string);
     str_tab_size += string.length() + 1;
     return string_table->size() - 1;
+}
+
+void Elf32File::appendToSection(uint32_t index, std::vector<uint8_t>* contents) {
+    std::vector<uint8_t>& contents_ref = *getSectionContents(index);
+    std::vector<uint8_t>& contents_to_append_ref = *contents;
+
+    for ( int i = 0; i < contents_to_append_ref.size(); i++ ) {
+        contents_ref.push_back(contents_to_append_ref[i]);
+    }
+    // This function does not update the size
+}
+
+uint32_t Elf32File::getSectionIndex(std::string section_name) {
+    std::vector<std::string>& string_table_ref = *string_table;
+    for ( int i = 0; i < sections->size(); i++ ) {
+        if ( string_table_ref[sections->at(i)->header->sh_name] == section_name ) return i; 
+    }
+
+    return -1;
+}
+
+void Elf32File::patchSectionContents(std::string section_name, uint32_t offset, uint32_t word) {
+    std::vector<uint8_t>& contents_ref = *getSectionContents(getSectionIndex(section_name));
+
+    for ( int i = 0; i < 4; i++) {
+        // Data is stored in little endian, so we start from lowest byte
+        unsigned char byte = word;
+        word >>= 8;
+        contents_ref[offset + i] = byte; 
+    }
+}
+
+std::vector<Elf32_Rela*>* Elf32File::getRelocationTable(std::string section_name) {
+    for (int i = 0; i < sections->size(); i++ ) {
+        if ( sections->at(i)->header->sh_type == SHT_RELA
+        && string_table->at(sections->at(sections->at(i)->header->sh_link)->header->sh_name) == section_name ) {
+            if ( relocation_tables->find(i) != relocation_tables->end() ) {
+                return relocation_tables->at(i);
+            } else {
+                std::vector<Elf32_Rela*>* reloc_table = new std::vector<Elf32_Rela*>();
+                relocation_tables->emplace(std::make_pair(i, reloc_table));
+                return reloc_table;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+Elf32_Shdr* Elf32File::getRelocSectionHeader(std::string section_name) {
+    for (int i = 0; i < sections->size(); i++ ) {
+        if ( sections->at(i)->header->sh_type == SHT_RELA
+        && string_table->at(sections->at(sections->at(i)->header->sh_link)->header->sh_name) == section_name ) {
+            return sections->at(i)->header;
+        }
+    }
+
+    return nullptr;
+}
+
+uint32_t Elf32File::getSymbolIndex(std::string name) {
+    std::vector<std::string>& string_table_ref = *string_table;
+    std::vector<Elf32_Sym*>& symbol_table_ref = *symbol_table;
+    for ( int i = 0; i < symbol_table_ref.size(); i++ ) {
+        if ( string_table_ref[symbol_table_ref[i]->st_name] == name ) return i;
+    }
+
+    return -1;
+}
+
+
+uint32_t Elf32File::addSymbol(std::string name, Elf32_Addr value, Elf32_Word size, unsigned char info, std::string section) {
+    Elf32_Sym* symbol = new Elf32_Sym();
+    symbol->st_name = addString(name);
+    symbol->st_value = value;
+    symbol->st_size = size;
+    symbol->st_info = info;
+    if ( section == "UND" ) symbol->st_shndx = 0;
+    else symbol->st_shndx = getSectionIndex(section);
+    symbol_table->push_back(symbol);
+
+    // This function will also update the size of symbol table section(which is at index 0)
+    sections->at(0)->header->sh_size += sizeof(Elf32_Sym);
+    return symbol_table->size() - 1;
 }
 
 
@@ -63,6 +156,15 @@ void Elf32File::addSymbolTable(std::vector<Symbol>* sym_table) {
     sections->at(0)->header->sh_size = sym_table->size() * sizeof(Elf32_Sym);
 }
 
+Elf32_Sym* Elf32File::getSymbol(std::string name) {
+    std::vector<std::string>& string_table_ref = *string_table;
+    for ( Elf32_Sym* symbol : *symbol_table ) {
+        if ( string_table_ref[symbol->st_name] == name ) return symbol;
+    }
+
+    return nullptr;
+}
+
 // TODO - this is only for code sections because of type
 void Elf32File::addAssemblerSection(Symbol section) {
     std::vector<uint8_t>* contents = section.contents;
@@ -77,7 +179,7 @@ void Elf32File::addAssemblerSection(Symbol section) {
 
     // We iterate through symbol table and fix the section header indexes of every symbol that belongs to this section
     // including the symbol that represents the section itself
-    // TODO - assembler should do this the right way, so we dont ahve to fix it here 
+    // TODO - assembler should do this the right way, so we dont have to fix it here 
     for ( Elf32_Sym* sym : *symbol_table ) {
         if (sym->st_shndx == section.section ) sym->st_shndx = shndx;
     }
@@ -106,82 +208,89 @@ void Elf32File::addAssemblerSection(Symbol section) {
 
 
 bool Elf32File::makeBinaryFile() {
-    if ( header->e_type == ET_REL ) {
-        // First we need to set all the fields that have remained empty and are known now
-        header->e_shnum = sections->size();
-        header->e_phnum = program_header_table->size();
 
-        // Set size of string table section
-        sections->at(1)->header->sh_size = str_tab_size;
-    
-        // Now we have to go through every section header and set section offsets
-        Elf32_Off offset = sizeof(Elf32_Ehdr);
-        for ( int i = 0; i < sections->size(); i++ ) {
-            SectionInfo* sec = sections->at(i);
-            sec->header->sh_offset = offset;
-            if ( sec->header->sh_type == SHT_SYMTAB ) offset += symbol_table->size() * sizeof(Elf32_Sym);
-            else if ( sec->header->sh_type == SHT_STRTAB ) offset += str_tab_size;
-            else if ( sec->header->sh_type == SHT_RELA ) {
-                if ( sec->header->sh_size > 0 ) offset += relocation_tables->find(i)->second->size() * sizeof(Elf32_Rela);
-            } else {
-                offset += sec->contents->size();
-            }
+    // First we need to set all the fields that have remained empty and are known now
+    header->e_shnum = sections->size();
+    header->e_phnum = segments->size();
+
+    // Set size of string table section
+    sections->at(1)->header->sh_size = str_tab_size;
+
+    // Now we have to go through every section header and set section offsets
+    Elf32_Off offset = sizeof(Elf32_Ehdr) + segments->size() * sizeof(Elf32_Phdr);
+    for ( int i = 0; i < sections->size(); i++ ) {
+        SectionInfo* sec = sections->at(i);
+        sec->header->sh_offset = offset;
+        if ( sec->header->sh_type == SHT_SYMTAB ) offset += symbol_table->size() * sizeof(Elf32_Sym);
+        else if ( sec->header->sh_type == SHT_STRTAB ) offset += str_tab_size;
+        else if ( sec->header->sh_type == SHT_RELA ) {
+            if ( sec->header->sh_size > 0 ) offset += relocation_tables->find(i)->second->size() * sizeof(Elf32_Rela);
+        } else {
+            offset += sec->contents->size();
         }
-        
-        // Section header table is at offset: sizeof(header) + sizeof(PHT)(= 0 in relocatable file) + sizeof(sections)
-        header->e_shoff = offset;
-
-        // Write to file
-
-        std::fstream file;
-        file.open(name, std::ios::out | std::ios::binary );
-
-        // Write header
-        file.write(reinterpret_cast<const char*>(header), sizeof(Elf32_Ehdr));
-
-        // Write sections
-        for( int i = 0; i < sections->size(); i++ ) {
-            SectionInfo* sec = sections->at(i);
-            switch (sec->header->sh_type) {
-            case SHT_SYMTAB: {
-                for ( Elf32_Sym* sym : *symbol_table ) {
-                    file.write(reinterpret_cast<const char*>(sym), sizeof(Elf32_Sym));
-                }
-            break;
-            }
-            case SHT_STRTAB: {
-                for ( std::string& str : *string_table ) {
-                    file << str << '\0';
-                }
-                break;
-            }
-            case SHT_RELA: {
-                if ( sec->header->sh_size > 0 ) {
-                    for ( Elf32_Rela* rel : *relocation_tables->find(i)->second ) {
-                        file.write(reinterpret_cast<const char*>(rel), sizeof(Elf32_Rela));
-                    }
-                }
-                break;
-            }
-            default: {
-                std::vector<uint8_t>& contents = *sec->contents;
-                for ( uint8_t byte : contents ) {
-                    file << byte;
-                }
-                break;
-            }
-            }
-        }
-
-        // Write section header table
-        for ( SectionInfo* sec : *sections ) {
-            file.write(reinterpret_cast<const char*>(sec->header), sizeof(Elf32_Shdr));
-        }
-
-        file.close();
-    } else {
-
     }
+
+    // Since section offsets have been set, we go through program headers and set their offsets based on their starting section
+    for ( SegmentInfo* seg : *segments ) {
+        seg->header->p_offset = seg->starting_section->sh_offset;
+    }
+    
+    // Section header table is at offset: sizeof(header) + sizeof(PHT) + sizeof(sections)
+    header->e_shoff = offset;
+
+    // Write to file
+
+    std::fstream file;
+    file.open(name, std::ios::out | std::ios::binary );
+
+    // Write header
+    file.write(reinterpret_cast<const char*>(header), sizeof(Elf32_Ehdr));
+
+    // Write program header table
+    for ( SegmentInfo* seg : *segments ) {
+        file.write(reinterpret_cast<const char*>(seg->header), sizeof(Elf32_Phdr));
+    }
+
+    // Write sections
+    for( int i = 0; i < sections->size(); i++ ) {
+        SectionInfo* sec = sections->at(i);
+        switch (sec->header->sh_type) {
+        case SHT_SYMTAB: {
+            for ( Elf32_Sym* sym : *symbol_table ) {
+                file.write(reinterpret_cast<const char*>(sym), sizeof(Elf32_Sym));
+            }
+        break;
+        }
+        case SHT_STRTAB: {
+            for ( std::string& str : *string_table ) {
+                file << str << '\0';
+            }
+            break;
+        }
+        case SHT_RELA: {
+            if ( sec->header->sh_size > 0 ) {
+                for ( Elf32_Rela* rel : *relocation_tables->find(i)->second ) {
+                    file.write(reinterpret_cast<const char*>(rel), sizeof(Elf32_Rela));
+                }
+            }
+            break;
+        }
+        default: {
+            std::vector<uint8_t>& contents = *sec->contents;
+            for ( uint8_t byte : contents ) {
+                file << byte;
+            }
+            break;
+        }
+        }
+    }
+
+    // Write section header table
+    for ( SectionInfo* sec : *sections ) {
+        file.write(reinterpret_cast<const char*>(sec->header), sizeof(Elf32_Shdr));
+    }
+
+    file.close();
     
 
     // TODO - check for errors and fix return
@@ -260,6 +369,30 @@ bool Elf32File::readFromFile() {
         }
     } 
 
+
+    file.seekg(sizeof(Elf32_Ehdr));
+    // Read program header table
+    for ( int i = 0; i < header->e_phnum; i++) {
+        Elf32_Phdr* phdr = new Elf32_Phdr();
+        file.read(reinterpret_cast<char*>(phdr), sizeof(Elf32_Phdr));
+        // We have to connect program headers with their sections
+        // we will do this by finding the starting section using the offset
+        std::vector<uint8_t>* contents = nullptr;
+        Elf32_Shdr* starting_section = nullptr;
+        for ( SectionInfo* sec : *sections ) {
+            if ( sec->header->sh_offset == phdr->p_offset ) {
+                contents = sec->contents;
+                starting_section = sec->header;
+                break;
+            }
+        }
+        segments->push_back(new SegmentInfo(phdr, contents, starting_section));
+    }
+
+    
+
+
+
     file.close();
 
     // TODO -
@@ -308,7 +441,7 @@ void Elf32File::makeTextFile() {
         for ( int j = 0; j < contents_ref.size(); j += 4 ) {
             if ( !(j % 16) ) {
                 fout << std::setw(3) << "";
-                printHex(fout, j, 10, true);
+                printHex(fout, sec->header->sh_addr + j, 10, true);
                 fout << ": ";
             }
 
@@ -363,10 +496,10 @@ Elf32File::~Elf32File() {
         delete sym;
     }
     delete symbol_table;
-    for ( Elf32_Phdr* phdr : *program_header_table ) {
-        delete phdr;
+    for ( SegmentInfo* seg : *segments ) {
+        delete seg;
     }
-    delete program_header_table;
+    delete segments;
     for ( auto entry : *relocation_tables) {
         for ( Elf32_Rela* rel : *entry.second ) {
             delete rel;

@@ -4,3 +4,5 @@ maintest.cpp
 output.*
 samples
 results
+prog*
+test*

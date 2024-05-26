@@ -39,8 +39,8 @@ struct Elf32_Ehdr {
 // Special section indexes in section header tabel
 
 #define SHN_UNDEF           0
-#define SHN_ABS             1
-#define SHN_COMMON          2
+//#define SHN_ABS             1             TODO - change these values
+//#define SHN_COMMON          2
 
 
 // Elf32 section header structure
@@ -154,9 +154,9 @@ struct Elf32_Rela {
 
 // Macros used to manipulate with r_info and the values it holds
 
-#define ELF32_R_SYM(i)        ((i)>>8)
-#define ELF32_R_TYPE(i)        ((unsigned char)(i))
-#define ELF32_R_INFO(s, t)     (((s)<<8)+(unsigned char)(t))
+#define ELF32_R_SYM(i)          ((i)>>8)
+#define ELF32_R_TYPE(i)         ((unsigned char)(i))
+#define ELF32_R_INFO(s, t)      (((s)<<8)+(unsigned char)(t))
 
 // Relocation types - for now we only need one
 
@@ -169,11 +169,12 @@ struct Elf32_Phdr {
     Elf32_Word      p_type;
     Elf32_Off       p_offset;
     Elf32_Addr      p_vaddr;
-    Elf32_Addr      p_paddr;
-    Elf32_Word      p_filesz;
-    Elf32_Word      p_memsz;
-    Elf32_Word      p_flags;
-    Elf32_Word      p_align;
+    //Elf32_Addr      p_paddr;
+    //Elf32_Word      p_filesz;
+    //Elf32_Word      p_memsz;
+    Elf32_Word      p_size;     // Will have this field instead of the previous two
+    //Elf32_Word      p_flags;
+    //Elf32_Word      p_align;
 };
 
 #define PHDR_SIZE sizeof(Elf32_Phdr)
@@ -182,18 +183,19 @@ struct Elf32_Phdr {
 
 #define PT_NULL         0
 #define PT_LOAD         1
+/*
 #define PT_DYNAMIC      2
 #define PT_INTERP       3
 #define PT_NOTE         4
 #define PT_SHLIB        5
-#define PT_PHDR         6
+#define PT_PHDR         6*/
 
 // Segment flag bit used for Elf32 program header member p_flags
-
+/*
 #define PF_X            0x1
 #define PF_W            0x2
 #define PF_R            0x4
-#define PF_MASKPROC     0xf0000000
+#define PF_MASKPROC     0xf0000000*/
 
 
 // TODO - add Dynamic section definitions if needed
