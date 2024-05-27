@@ -297,3 +297,13 @@ void Linker::startLinking() {
   output_file->makeBinaryFile();
   output_file->makeTextFile();
 }
+
+
+Linker::~Linker() {
+  delete memory_map_p;
+  delete memory_map;
+  for ( Elf32File* file : *files ) {
+    delete file;
+  }
+  delete files;
+}

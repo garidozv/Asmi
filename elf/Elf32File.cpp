@@ -23,6 +23,7 @@ Elf32File::Elf32File(std::string file_name, Elf32_Half type, bool empty) {
         header->e_entry = 0;
         header->e_type = type;
         header->e_strndx = 1;
+        //if ( type == ET_EXEC ) header->e_entry = 0x40000000
         // All the other fields will be known at the end when writing to file
     }
 }
@@ -445,7 +446,7 @@ void Elf32File::makeTextFile() {
                 fout << ": ";
             }
 
-            uint32_t word = (uint32_t)contents_ref[j] | ((uint32_t)contents_ref[j+1] << 8) | ((uint32_t)contents_ref[j+2] << 16) | ((uint32_t)contents_ref[j+3] << 24);
+            uint32_t word = (uint32_t)contents_ref[j+3] | ((uint32_t)contents_ref[j+2] << 8) | ((uint32_t)contents_ref[j+1] << 16) | ((uint32_t)contents_ref[j] << 24);
             printHex(fout, word, 8);
 
             if ( j != 0 && j != contents_ref.size() - 1 && !((j + 4) % 16) ) fout << '\n';

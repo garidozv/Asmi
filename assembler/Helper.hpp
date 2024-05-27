@@ -15,6 +15,7 @@ public:
 	static int parseReg(std::string reg);
 	static std::string regToString(int reg);
 	static std::vector<std::string> splitString(std::string str, char delim);
+	static bool checkSymbolicList(std::string* s);
 };
 
 

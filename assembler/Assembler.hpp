@@ -9,8 +9,8 @@
 
 #include "Helper.hpp"
 #include "AssemblerDefs.hpp"
-#include "./elf/Elf32Mod.hpp"
-#include "./elf/Elf32File.hpp"
+#include "../elf/Elf32Mod.hpp"
+#include "../elf/Elf32File.hpp"
 
 
 class Assembler {

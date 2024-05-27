@@ -150,7 +150,7 @@ LD $LITERAL/$SYMBOL, RX		0x92XF0DDD
 r[x] <= mem[pc + D] 	// literal/simbol se nalazi u bazenu literala
 
 LD LITERAL/SYMBOL, RX		0x92XF0DDD
-							0x92XX0000
+												0x92XX0000
 r[x] <= mem[pc + D]		// rx se svakako mijenja, pa mogu adresu da upisem u njega
 r[x] <= mem[r[x]]
 
@@ -182,7 +182,7 @@ LD SYMBOL, RX		0x92XF0DDD
 r[x] <= mem[pc + D]		
 ako je simbol u istoj sekciji i pomjeraj D moze da stane u 12b
 
-
+921f0014
 
 BEQ RX, RY, LITERAL/SYMBOL		0x39FXYDDD	|	0x3AFXYDDD	|	0x3BFXYDDD
 if ( r[x] == r[y] ) pc <= mem[pc + D]		// literal/simbol je u bazenu literala

@@ -2,7 +2,7 @@
 #define ELF32FILE_H
 
 #include "./Elf32Mod.hpp"
-#include "../AssemblerDefs.hpp"
+#include "../assembler/AssemblerDefs.hpp"
 #include <vector>
 #include <unordered_map>
 #include <string>
@@ -37,8 +37,7 @@ private:
         SegmentInfo(Elf32_Phdr* program_header, std::vector<uint8_t>* contents, Elf32_Shdr* sec_header)
          : header(program_header), contents(contents), starting_section(sec_header) {};
         ~SegmentInfo() {
-            // Section header will be deleted in SectionInfo
-            if ( contents ) delete contents;
+            // Section header and contents will be deleted in SectionInfo
             delete header;
         }
     };
@@ -136,10 +135,14 @@ public:
     std::vector<uint8_t>* getSectionContents(uint32_t index) const { return sections->at(index)->contents; };
     std::vector<Elf32_Rela*>* getRelocationTable(uint32_t index) const { return relocation_tables->at(index); };
     uint32_t getNumberOfSections() { return sections->size(); };
+    uint32_t getNumberOfSegments() { return segments->size(); };
+    Elf32_Phdr* getSegmentHeader(uint32_t index) const { return segments->at(index)->header; };
+    std::vector<uint8_t>* getSegmentContents(uint32_t index) const { return segments->at(index)->contents; };
     Elf32_Sym* getSymbol(std::string name);
     uint32_t getSymbolIndex(std::string name);
     std::vector<Elf32_Rela*>* getRelocationTable(std::string section_name);
     Elf32_Shdr* getRelocSectionHeader(std::string section_name);
+    Elf32_Half getType() { return header->e_type; };
 };
 
 

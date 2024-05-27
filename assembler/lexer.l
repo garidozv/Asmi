@@ -20,14 +20,14 @@ SYM [a-zA-Z_][a-zA-Z_0-9]*
 
 /* directives */
 
-GLOBAL .global
-EXTERN .extern
-SECTION .section
-WORD .word
-SKIP .skip
-ASCII .ascii
-EQU .equ
-END .end
+GLOBAL \.global
+EXTERN \.extern
+SECTION \.section
+WORD \.word
+SKIP \.skip
+ASCII \.ascii
+EQU \.equ
+END \.end
 
 /* instructions */
 

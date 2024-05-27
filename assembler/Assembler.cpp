@@ -406,6 +406,7 @@ void Assembler::addInstruction(Instruction instruction) {
                     // opcode for LD with direct literal addressing mode when literal can fit in 12b is 0x92X00DDD
                     // where X represents the register being written to and D the literal value
                     uint32_t opcode = makeOpcode(0x92, instruction.reg1, 0, 0, instruction.op.literal);
+                    addWordToCurentSection(opcode);
                 } else {
                     // It is also possible to fit this instruction/addresing mode combination in 1 word if the operand is symbol if it is
                     // determined that symbol is in same section and offset can fit in 12 bits
@@ -687,11 +688,22 @@ void Assembler::addDirective(Directive directive) {
             break;
         }
         case Types::WORD: {
+            // TODO - u listi mogu biti i literal i simboli
             std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
 
             // Get contents of current section, since we will be inserting words into it
             std::vector<unsigned char>& section_contents = *(symbol_table->at(current_section).contents);
-            // Check if it's a symbol or literal list
+            // Iterate through list elements, check whether they are literals or symbols, and call appropriate function(s) based on that
+            for ( std::string& elem : elems ) {
+                if ( std::isdigit(elem[0]) ) {
+                    // Add literal to current section
+                    addWordToCurentSection(std::stoi(elem));
+                } else {
+                    resolveSymbol(elem);
+                    // Reserve space in section
+                    addWordToCurentSection(0);
+                }
+            }/*
             if ( std::isdigit(elems[0][0]) ) {  // We check it this way since symbols can't start with a number
                 for ( std::string& literal : elems ) {
                     // For each literal from the list we have to insert 4 bytes into current section and initialize those 4 bytes with this literal value
@@ -703,7 +715,7 @@ void Assembler::addDirective(Directive directive) {
                     // Reserve space in section
                     addWordToCurentSection(0);
                 }
-            }
+            }*/
             break;
         }
         case Types::SKIP: {
@@ -718,9 +730,8 @@ void Assembler::addDirective(Directive directive) {
             // Does not null terminate the string
             std::vector<unsigned char>& section_contents = *(symbol_table->at(current_section).contents);
             std::vector<char> string_vector = processString(directive.symbol);
-            // Start from last character because of little endian
-            // TODO - maybe stop at first \0 if present
-            for ( int i = string_vector.size(); i >= 0 ; i-- ) {
+            // Looks like little endian does not apply here
+            for ( int i = 0; i < string_vector.size() ; i++ ) {
                 section_contents.push_back(string_vector[i]);
             }
             LC += string_vector.size();

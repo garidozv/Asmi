@@ -32,6 +32,7 @@ protected:
 
 public:
 
+  ~Linker();
   Linker(Linker&) = delete;
   void operator=(const Linker&) = delete;
   static Linker* getInstance();

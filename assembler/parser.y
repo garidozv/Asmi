@@ -79,8 +79,8 @@ Assembler* assembler = Assembler::getInstance();
 %token<sym> LAB
 %token<sym> GPR
 %token<sym> CSR;
-%type<sym> symbolic_list
-%type<sym> literal_list
+//%type<sym> symbolic_list
+//%type<sym> literal_list
 %type<sym> list
 %type<op> jmpcallop
 %type<op> operand
@@ -121,19 +121,30 @@ line:
 | EOL { assembler->newLine(); };
 
 directive:
-  GLOBAL symbolic_list {
-	struct Directive* dir = new struct Directive();
-	dir->type = Types::GLOBAL;
-	dir->symbol = *($2);
-	delete $2;
-	$$ = dir;
+  GLOBAL list {
+	if ( Helper::checkSymbolicList($2) ) {
+		struct Directive* dir = new struct Directive();
+		dir->type = Types::GLOBAL;
+		dir->symbol = *($2);
+		delete $2;
+		$$ = dir;
+	} else {
+		yyerror("global directive's list can only contain symbols");
+		exit(-1);
+	}
+	
 }
-| EXTERN symbolic_list {
-	struct Directive* dir = new struct Directive();
-	dir->type = Types::EXTERN;
-	dir->symbol = *($2);
-	delete $2;
-	$$ = dir;
+| EXTERN list {
+	if ( Helper::checkSymbolicList($2) ) {
+		struct Directive* dir = new struct Directive();
+		dir->type = Types::EXTERN;
+		dir->symbol = *($2);
+		delete $2;
+		$$ = dir;
+	} else {
+		yyerror("extern directive's list can only contain symbols");
+		exit(-1);
+	}
 }
 | SECTION SYMBOLIC {
 	struct Directive* dir = new struct Directive();
@@ -469,7 +480,21 @@ jmpcallop:
 	$$ = op;
 }
 
-
+list:
+	SYMBOLIC { $$ = $1; }
+| LITERAL { $$ = new string(to_string($1)); }
+| SYMBOLIC COMMA list {
+	$$ = Helper::concat_strings_with_comma($1, $3);
+	delete $1;
+	delete $3;
+}
+| LITERAL COMMA list {
+	string* temp = new string(to_string($1));
+	$$ = Helper::concat_strings_with_comma(temp, $3);
+	delete temp;
+	delete $3;
+}
+/*
 list:
   symbolic_list { $$ = $1; }
 | literal_list { $$ = $1; }
@@ -489,7 +514,7 @@ literal_list:
 	$$ = Helper::concat_strings_with_comma(temp, $3);
 	delete temp;
 	delete $3;
-}
+}*/
 
 
 
@@ -508,5 +533,5 @@ int main() {
 
 
 void yyerror(const char* s) {
- cout << "ERROR: " << s << endl << "line: " << yylineno << endl;
+ cout << "parser:" << yylineno << ": error : " << s << endl;
 }

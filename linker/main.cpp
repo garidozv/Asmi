@@ -2,7 +2,7 @@
 #include <string>
 #include <iostream>
 #include <unordered_map>
-#include "../Helper.hpp"
+#include "../assembler/Helper.hpp"
 #include "./Linker.hpp"
 
 int main(int argc, char *argv[]) {

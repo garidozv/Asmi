@@ -13,6 +13,14 @@ std::string* Helper::concat_strings_with_comma(std::string* s1, std::string* s2)
 	return new std::string(*s1 + "," + *s2);
 }
 
+bool Helper::checkSymbolicList(std::string* list) {
+    std::vector<std::string> elems = splitString(*list, ',');
+    for ( std::string elem : elems ) {
+        if ( std::isdigit(elem[0]) ) return false; 
+    }
+    return true;
+}
+
 
 int  Helper::parseReg(std::string reg) {
     if ( reg == "status" ) return 16;
