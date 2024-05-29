@@ -3,7 +3,7 @@ CXXFLAGS = -g -o
 YFLAGS = -d -t
 LFILE = lexer.cpp
 YFILE = parser.cpp
-FILES = Assembler.cpp
+FILES = Assembler.cpp EquDefinition.cpp
 MISC = Helper.cpp main.cpp ../elf/Elf32File.cpp
 
 prog: $(LFILE) $(YFILE) $(MISC) $(FILES)
@@ -16,7 +16,7 @@ $(YFILE): parser.y
 	bison $(YFLAGS) $^
 
 test:
-	cat sample2.txt | ./prog
+	./prog -o sample.o sample.s
 	#make -s clean
 
 clean:

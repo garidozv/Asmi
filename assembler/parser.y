@@ -25,6 +25,7 @@ Assembler* assembler = Assembler::getInstance();
   struct Operand* op;
   struct Instruction* instr;
   struct Directive* dir;
+	struct Expression* expr;
 }
 
 %token GLOBAL
@@ -65,6 +66,7 @@ Assembler* assembler = Assembler::getInstance();
 
 %token EOL
 %token PLUS
+%token MINUS
 %token COL
 %token PER
 %token DOL
@@ -86,7 +88,7 @@ Assembler* assembler = Assembler::getInstance();
 %type<op> operand
 %type<instr> instruction
 %type<dir> directive
-
+%type<expr> expression
 
 %%
 
@@ -173,11 +175,11 @@ directive:
 	delete $2;
 	$$ = dir;
 }
-| EQU SYMBOLIC COMMA LITERAL {  /* expression here, not literal */
+| EQU SYMBOLIC COMMA expression {  /* expression here, not literal */
 	struct Directive* dir = new struct Directive();
 	dir->type = Types::EQU;
 	dir->symbol = *($2);
-	dir->literal = $4;
+	dir->expr = $4;
 	delete $2;
 	$$ = dir;
 }
@@ -494,6 +496,61 @@ list:
 	delete temp;
 	delete $3;
 }
+
+expression:
+  SYMBOLIC { 
+	struct Expression* expr = new struct Expression();
+	expr->symbol = *$1;
+	$$ = expr;	
+	delete $1;
+	//std::cout << expr->symbol << std::endl;
+}
+|	LITERAL {
+	string* temp = new string(to_string($1));
+	struct Expression* expr = new struct Expression();
+	expr->symbol = *temp;
+	$$ = expr;
+	delete temp;
+	//std::cout << expr->symbol << std::endl;
+}
+| SYMBOLIC PLUS expression {
+	struct Expression* expr = new struct Expression();
+	expr->symbol = *$1;
+	expr->next = $3;
+	$3->sign = Types::PLUS;
+	$$ = expr;
+	delete $1;
+}
+| LITERAL PLUS expression {
+	string* temp = new string(to_string($1));
+	struct Expression* expr = new struct Expression();
+	expr->symbol = *temp;
+	expr->next = $3;
+	$3->sign = Types::PLUS;
+	$$ = expr;
+	delete temp;
+	//std::cout << expr->symbol << std::endl;
+}
+| SYMBOLIC MINUS expression {
+	struct Expression* expr = new struct Expression();
+	expr->symbol = *$1;
+	expr->next = $3;
+	$3->sign = Types::MINUS;
+	$$ = expr;
+	delete $1;
+	//std::cout << expr->symbol << std::endl;
+}
+| LITERAL MINUS expression {
+	string* temp = new string(to_string($1));
+	struct Expression* expr = new struct Expression();
+	expr->symbol = *temp;
+	expr->next = $3;
+	$3->sign = Types::MINUS;
+	$$ = expr;
+	delete temp;
+	//std::cout << expr->symbol << std::endl;
+}
+
 /*
 list:
   symbolic_list { $$ = $1; }

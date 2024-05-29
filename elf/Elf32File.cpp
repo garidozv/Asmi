@@ -426,7 +426,7 @@ void Elf32File::makeTextFile() {
              << std::setw(4) << symbol_table_ref[i]->st_size << "  " << std::left
              << std::setw(5) << elf_sym_types[ELF32_ST_TYPE(symbol_table_ref[i]->st_info)] << "  "
              << std::setw(4) << elf_sym_binds[ELF32_ST_BIND(symbol_table_ref[i]->st_info)] << "  " << std::right
-             << std::setw(3) << (symbol_table_ref[i]->st_shndx == 0 ? "UND" : ( symbol_table_ref[i]->st_shndx == -1 ? "ABS" : std::to_string(symbol_table_ref[i]->st_shndx) ) ) << "  "
+             << std::setw(3) << (symbol_table_ref[i]->st_shndx == 0 ? "UND" : ( symbol_table_ref[i]->st_shndx == (Elf32_Half)-1 ? "ABS" : std::to_string(symbol_table_ref[i]->st_shndx) ) ) << "  "
              << string_table->at(symbol_table_ref[i]->st_name) << '\n';
     }
 

@@ -70,6 +70,7 @@ CSR status|handler|cause
 LSQB "["
 RSQB "]"
 PLUS "+"
+MINUS "-"
 COMMA ","
 PER "%"
 DOL "$"
@@ -120,6 +121,7 @@ STR \".*\"|\'.*\'
 {SYM}{COL} { yylval.sym = Helper::make_string(yytext); yylval.sym->pop_back(); return LAB; }
 {COMMA} { return COMMA; }
 {PLUS} { return PLUS; }
+{MINUS} { return MINUS; }
 {DOL}{HEX} { yylval.num = strtol(yytext + 1, NULL, 16); return IMMLIT; }
 {DOL}{DEC} { yylval.num = strtol(yytext + 1, NULL, 10); return IMMLIT; }
 {DOL}{SYM} { yylval.sym = Helper::make_string(yytext+1); return IMMSYM; }

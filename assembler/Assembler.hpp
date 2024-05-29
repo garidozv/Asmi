@@ -6,14 +6,18 @@
 #include <stdint.h>
 #include <iomanip>
 #include <fstream>
+#include <unordered_map>
 
 #include "Helper.hpp"
 #include "AssemblerDefs.hpp"
+#include "EquDefinition.hpp"
 #include "../elf/Elf32Mod.hpp"
 #include "../elf/Elf32File.hpp"
 
 
 class Assembler {
+
+    friend class EquDefinition;
 
     int LC;
 
@@ -26,10 +30,13 @@ class Assembler {
 
     std::string output_file_name = "";
 
+    // Table of unresolved symbols
+    TNSEntry* tns = nullptr;
+
     // looks for a symbol in symbol table, returns -1 if not present
     // made so i can implement it more efficiently later on
     int findSymbol(std::string symbol_name);
-    void addWordToCurentSection(uint32_t word);
+    void addWordToCurrentSection(uint32_t word);
     void patchWord(uint32_t section, uint32_t offset, uint32_t word);
     void insertDisplacement(uint32_t section, uint32_t offset, uint32_t value);
     
@@ -37,7 +44,10 @@ class Assembler {
     // If not section and section and offset are not provided, sets offset to current LC, and section to current section
     // If section, sets offset to 0, and section to itself
     // Does not change LC or current_section
-    int addSymbol(std::string name, uint8_t bind, bool defined, bool is_section = false, uint32_t section = -1, uint32_t offset = -1);
+    int addSymbol(std::string name, uint8_t bind, bool defined, uint32_t section, uint32_t offset, uint32_t rel = 0, bool is_section = false);
+    int addForwardRefSymbol(std::string name) {
+        return addSymbol(name, 0, 0, 0, 0, 0);
+    }
     static uint32_t makeOpcode(uint32_t ocmod, uint32_t reg_a, uint32_t reg_b, uint32_t reg_c, uint32_t disp) {
         return ( ocmod << 24 ) | ( (reg_a & 0xf) << 20 ) | ( (reg_b & 0xf) << 16 ) | ( (reg_c & 0xf) << 12 ) | ( disp & 0xfff );
     }
@@ -47,9 +57,12 @@ class Assembler {
     void resolveSymbol(std::string symbol);
     void checkSymbol(std::string);
     std::vector<char> processString(std::string string);
+
+    void processEqu(std::string name, Expression* expr);
        
     void startBackpatching();
     void resolveLiteralPools();
+    void resolveTNS();
     void printError(std::string message);
 
     //void makeTextFile();

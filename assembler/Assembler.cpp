@@ -65,7 +65,7 @@ Assembler::Assembler() {
     symbol_table = new std::vector<Symbol>();
     //relocation_table = new std::vector<Reloc_Entry>();
     // add undefined symbol entry
-    addSymbol("undefined", STB_LOCAL, true, false, 0, 0);
+    addSymbol("undefined", STB_LOCAL, true, 0, 0);
 }
 
 
@@ -74,7 +74,7 @@ void Assembler::addLabel(std::string label_name) {
         // Error, a label can not stand on its own, outside of a section
         printError("the label '" + label_name + "' must be placed within a section");
     } else {
-        int entry = findSymbol(label_name);
+        int32_t entry = findSymbol(label_name);
         if ( entry >= 0 ) {
             std::vector<Symbol>& symbol_table_ref = *symbol_table;
             if ( symbol_table_ref[entry].defined ) {
@@ -92,7 +92,8 @@ void Assembler::addLabel(std::string label_name) {
             }
         } else {
             // Entry for this symbol doesnt exist in symbol table so we have to add it
-            addSymbol(label_name, STB_LOCAL, true);
+            //addSymbol(label_name, STB_LOCAL, true);
+            addSymbol(label_name, STB_LOCAL, true, current_section, LC);
             // Default bind is local
         }
     }
@@ -107,7 +108,7 @@ int Assembler::findSymbol(std::string symbol_name) {
     return -1;
 }
 
-void Assembler::addWordToCurentSection(uint32_t word) {
+void Assembler::addWordToCurrentSection(uint32_t word) {
     std::vector<unsigned char>& contents_ref = *symbol_table->at(current_section).contents;
     for ( int i = 0; i < 4; i++) {
         // Data is stored in little endian, so we start from lowest byte
@@ -118,7 +119,7 @@ void Assembler::addWordToCurentSection(uint32_t word) {
     LC += 4;
 }
 
-int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_section, uint32_t section, uint32_t offset) {
+int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, uint32_t section, uint32_t offset, uint32_t rel, bool is_section) {
     int entry = symbol_table->size();
 
     Symbol sym;
@@ -129,6 +130,9 @@ int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_s
     sym.literal_table = nullptr;
     sym.symbol_literal_table = nullptr;
     sym.flink = nullptr;
+    sym.rel = rel;
+    sym.section = section;
+    sym.offset = offset;
 
     if ( is_section ) {
         sym.section = entry;
@@ -137,10 +141,7 @@ int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, bool is_s
         sym.reloc_table = new std::vector<Reloc_Entry*>();
         sym.literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
         sym.symbol_literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
-    } else {
-        sym.section = (section == -1) ? current_section : section;
-        sym.offset = (offset == -1) ? LC : offset;
-    }
+    } 
 
     symbol_table->push_back(sym);
 
@@ -154,114 +155,114 @@ void Assembler::addInstruction(Instruction instruction) {
         switch (instruction.type) {
         case Types::HALT: {
             uint32_t opcode = 0x00000000;
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::INT: {
             uint32_t opcode = 0x10000000;
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::IRET: {
             uint32_t opcode1 = 0x93FE0004, opcode2 = 0x970E0004;
-            addWordToCurentSection(opcode1);
-            addWordToCurentSection(opcode2);
+            addWordToCurrentSection(opcode1);
+            addWordToCurrentSection(opcode2);
             break;
         }
         case Types::RET: {
             uint32_t opcode = 0x93FE0004;
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::PUSH: {
             // opcode is 0x81E0XFFC where X represents registar being pushed
             uint32_t opcode = makeOpcode(0x81, 14, 0, instruction.reg1, -4);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::POP: {
             // opcode is 0x93XE0004 where X represents registar being pushed
             uint32_t opcode = makeOpcode(0x93, instruction.reg1, 14, 0, 4);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::XCHG: {
             // opcode is 0x400XY000 where X represents first register and Y second register
             uint32_t opcode = makeOpcode(0x40, 0, instruction.reg1, instruction.reg2, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::ADD: {
             // opcode is 0x50YYX000 where Y represents first operand and destionation register and X second operand 
             uint32_t opcode = makeOpcode(0x50, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::SUB: {
             // opcode is 0x51YYX000 where Y represents first operand and destionation register and X second operand 
             uint32_t opcode = makeOpcode(0x51, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::MUL: {
             // opcode is 0x52YYX000 where Y represents first operand and destionation register and X second operand 
             uint32_t opcode = makeOpcode(0x52, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::DIV: {
             // opcode is 0x53YYX000 where Y represents first operand and destionation register and X second operand 
             uint32_t opcode = makeOpcode(0x53, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::NOT: {
             // opcode is 0x60XX0000 where X represent register that's being complemented
             uint32_t opcode = makeOpcode(0x60, instruction.reg1, instruction.reg1, 0, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::AND: {
             // opcode is 0x61YYX000 where Y represents first operand and destionation register and X second operand
             uint32_t opcode = makeOpcode(0x61, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::OR: {
             // opcode is 0x62YYX000 where Y represents first operand and destionation register and X second operand
             uint32_t opcode = makeOpcode(0x62, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::XOR: {
             // opcode is 0x63YYX000 where Y represents first operand and destionation register and X second operand
             uint32_t opcode = makeOpcode(0x63, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::SHL: {
             // opcode is 0x70YYX000 where Y represents first operand and destionation register and X second operand
             uint32_t opcode = makeOpcode(0x70, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::SHR: {
             // opcode is 0x71YYX000 where Y represents first operand and destionation register and X second operand
             uint32_t opcode = makeOpcode(0x71, instruction.reg2, instruction.reg2, instruction.reg1, 0);
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::CSRRD: {
             // opcode is 0x90YX0000 where X represents system register and Y general purpose register
             // - 16 for system register because my register name parser gives them values 16, 17 and 18 (should be 0, 1 and 2)
             uint32_t opcode = makeOpcode(0x90, instruction.reg2, instruction.reg1 - 16, 0, 0); 
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::CSRWR: {
             // opcode is 0x94YX0000 where Y represents system register and X general purpose register
             uint32_t opcode = makeOpcode(0x94, instruction.reg2 - 16, instruction.reg1, 0, 0); 
-            addWordToCurentSection(opcode);
+            addWordToCurrentSection(opcode);
             break;
         }
         case Types::CALL: case Types::JMP: {
@@ -273,7 +274,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 // opcode for JMP where literal can fit in D is 0x30000DDD 
                 // opcode for CALL where literal can fit in D is 0x20000DDD where D represents the literal
                 uint32_t opcode = makeOpcode(ocmod2, 0, 0, 0, instruction.op.literal);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
             } else {
                 if ( instruction.op.type == Types::LIT_DIR ) {
                     storeLiteral(instruction.op.literal); 
@@ -287,7 +288,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 // where D represents displacement to corresponding entry in literal pool which will be added during backpatching
                 // This opcode will be overwriten in case described above
                 uint32_t opcode = makeOpcode(ocmod1, 15, 0, 0, 0);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
             }
             break;
         }
@@ -301,7 +302,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 // opcode for BTT when literal operand can fit in 12b is 0x3T0XYDDD where X and Y represent the two registers being comapred
                 // and D the literal value
                 uint32_t opcode = makeOpcode(ocmod2, 0, instruction.reg1, instruction.reg2, instruction.op.literal);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
             } else {
                 if ( instruction.op.type == Types::LIT_DIR ) {
                     storeLiteral(instruction.op.literal); 
@@ -313,7 +314,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 // opcode for BTT with direct literal/symbol addressing mode is 0x3TFXYDDD where X and Y represent the two registers being comapred
                 // and D displacement to corresponding entry in literal pool which will be added during backpatching
                 uint32_t opcode = makeOpcode(ocmod1, 15, instruction.reg1, instruction.reg2, 0);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
             }   
             break;
         }
@@ -328,7 +329,7 @@ void Assembler::addInstruction(Instruction instruction) {
                         // opcode for ST with direct literal addressing mode is 0x8000XDDD where X represents a register being stored
                         // and D the literal address 
                         uint32_t opcode = makeOpcode(0x80, 0, 0, instruction.reg1, instruction.op.literal);
-                        addWordToCurentSection(opcode);
+                        addWordToCurrentSection(opcode);
                     } else {
                         if (instruction.op.type == Types::LIT) {
                             storeLiteral(instruction.op.literal);
@@ -338,20 +339,20 @@ void Assembler::addInstruction(Instruction instruction) {
                         // opcode for ST with indirect literal/symbol addressing mode is 0x82F0XDDD where X represents a register being stored
                         // and D displacement to corresponding entry in literal pool which will be added during backpatching
                         uint32_t opcode = makeOpcode(0x82, 15, 0, instruction.reg1, 0);
-                        addWordToCurentSection(opcode);
+                        addWordToCurrentSection(opcode);
                     }
                     break;
                 }
                 case Types::REG: {
                     // opcode for ST with register addressing mode is 0x91YX0000 where X represents a register being stored and Y the destination register
                     uint32_t opcode = makeOpcode(0x91, instruction.op.reg, instruction.reg1, 0, 0);
-                    addWordToCurentSection(opcode);
+                    addWordToCurrentSection(opcode);
                     break;
                 }
                 case Types::REG_DIR: {
                     // opcode for ST with register indirect addresing mode is 0x80Y0X000 where X represents a register being stored and Y the register that holds the addres to be written to
                     uint32_t opcode = makeOpcode(0x80, instruction.op.reg, 0, instruction.reg1, 0);
-                    addWordToCurentSection(opcode);
+                    addWordToCurrentSection(opcode);
                     break;
                 }
                 case Types::REG_LIT: {
@@ -362,7 +363,7 @@ void Assembler::addInstruction(Instruction instruction) {
                         printError("literal used as offset in base register addressing must fit in 12 displacement bits");
                     }
                     uint32_t opcode = makeOpcode(0x80, instruction.op.reg, 0, instruction.reg1, instruction.op.literal);
-                    addWordToCurentSection(opcode);
+                    addWordToCurrentSection(opcode);
                     break;
                 }
                 case Types::REG_SYM: {
@@ -371,7 +372,7 @@ void Assembler::addInstruction(Instruction instruction) {
                     // opcode for ST with base register addressing mode is 0x80Y0XDDD where X represents a register being stored,
                     // Y the base register and D an immediate symbol literal being added to base register 
                     uint32_t opcode = makeOpcode(0x80, instruction.op.reg, 0, instruction.reg1, 0);
-                    addWordToCurentSection(opcode);
+                    addWordToCurrentSection(opcode);
                     break;
                 }
                 }  
@@ -381,12 +382,11 @@ void Assembler::addInstruction(Instruction instruction) {
         case Types::LD: {
             switch (instruction.op.type) {
             case Types::LIT: case Types::SYM: {
-                // TODO - emulator will have to fill with sign when extracting 12 bit signed value from instructions displacement bits
                 if ( instruction.op.type == Types::LIT && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
                     // opcode for LD with literal immediate addressing mode is 0x91X00DDD where X represents the register being written to
                     // and D the literal being written
                     uint32_t opcode = makeOpcode(0x91, instruction.reg1, 0, 0, instruction.op.literal);
-                    addWordToCurentSection(opcode);
+                    addWordToCurrentSection(opcode);
                 } else {
                     if (instruction.op.type == Types::LIT) {
                         storeLiteral(instruction.op.literal);
@@ -396,7 +396,7 @@ void Assembler::addInstruction(Instruction instruction) {
                     // opcode for LD with direct literal/symbol immediate addressing mode is 0x92XF0DDD where X represents the register being written to
                     // and D displacement to corresponding entry in literal pool which will be added during backpatching
                     uint32_t opcode = makeOpcode(0x92, instruction.reg1, 15, 0, 0);
-                    addWordToCurentSection(opcode);
+                    addWordToCurrentSection(opcode);
                 }
                 break;
             }
@@ -406,7 +406,7 @@ void Assembler::addInstruction(Instruction instruction) {
                     // opcode for LD with direct literal addressing mode when literal can fit in 12b is 0x92X00DDD
                     // where X represents the register being written to and D the literal value
                     uint32_t opcode = makeOpcode(0x92, instruction.reg1, 0, 0, instruction.op.literal);
-                    addWordToCurentSection(opcode);
+                    addWordToCurrentSection(opcode);
                 } else {
                     // It is also possible to fit this instruction/addresing mode combination in 1 word if the operand is symbol if it is
                     // determined that symbol is in same section and offset can fit in 12 bits
@@ -422,8 +422,8 @@ void Assembler::addInstruction(Instruction instruction) {
                     uint32_t opcode1 = makeOpcode(0x92, instruction.reg1, 15, 0, 0),
                             opcode2 = makeOpcode(0x92, instruction.reg1, instruction.reg1, 0, 0);
                     // Forward literal reference entry will be created only for the first word(which is added at the current LC)
-                    addWordToCurentSection(opcode1);
-                    addWordToCurentSection(opcode2);
+                    addWordToCurrentSection(opcode1);
+                    addWordToCurrentSection(opcode2);
                 }
                 break;
             }
@@ -431,14 +431,14 @@ void Assembler::addInstruction(Instruction instruction) {
                 // opcode for LD with register addressing mode is 0x91XY0000 where X represents the register being written to 
                 // and Y the register being read from
                 uint32_t opcode = makeOpcode(0x91, instruction.reg1, instruction.op.reg, 0, 0);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
                 break;
             }
             case Types::REG_DIR: {
                 // opcode for LD with register indirect addresing mode is 0x92XY0000 where X represents the register being written to
                 // and Y the register that holds the memory addres of value to be written
                 uint32_t opcode = makeOpcode(0x92, instruction.reg1, instruction.op.reg, 0, 0);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
                 break;
             }
             case Types::REG_LIT: {
@@ -448,7 +448,7 @@ void Assembler::addInstruction(Instruction instruction) {
                     printError("literal used as offset in base register addressing must fit in 12 displacement bits");
                 }
                 uint32_t opcode = makeOpcode(0x92, instruction.reg1, instruction.op.reg, 0, instruction.op.literal);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
                 break;
             }
             case Types::REG_SYM: {
@@ -457,7 +457,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 // opcode for LD with base register addressing mode is 0x92XY0DDD where X represents the register being written to,
                 // Y the base register, and D an immediate symbol literal being added to base register
                 uint32_t opcode = makeOpcode(0x92, instruction.reg1, instruction.op.reg, 0, 0);
-                addWordToCurentSection(opcode);
+                addWordToCurrentSection(opcode);
                 break;
             }
             break;
@@ -469,13 +469,17 @@ void Assembler::addInstruction(Instruction instruction) {
 }
 
 void Assembler::printError(std::string message) {
-    std::cout << "assembler:" << lineno << ": error : " << message << std::endl;
+    if ( ended ) {
+        std::cout << "assembler: error : " << message << std::endl;
+    } else {
+        std::cout << "assembler:" << lineno << ": error : " << message << std::endl;
+    }
     exit(-1);
 }
 
 void Assembler::checkSymbol(std::string symbol) {
     std::vector<Symbol> &symbol_table_ref = *symbol_table;
-    int entry = findSymbol(symbol);
+    int32_t entry = findSymbol(symbol);
     if ( entry > 0 ) {                
         if ( symbol_table_ref[entry].defined && symbol_table_ref[entry].section != -1) {
             // -1 is just a placeholder, it should check if symbol belongs to ABS section, or in other words, check if symbol is constant
@@ -494,7 +498,7 @@ void Assembler::checkSymbol(std::string symbol) {
         }
     } else {
         // Symbol does not exist yet, add an undefined symbol entry and forward reference
-        int new_entry = addSymbol(symbol, 0, false, false, 0, 0);
+        int new_entry = addForwardRefSymbol(symbol);
 
         ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
         fr_entry->section = current_section;
@@ -506,8 +510,7 @@ void Assembler::checkSymbol(std::string symbol) {
 }
 
 void Assembler::resolveSymbol(std::string symbol) {
-    // Since we are only working with non constant symbols(their value is their address), we will always have to have relocation for the symbols
-    // TODO - constant symbols
+    // This function should be called after checking 
     // If it exists but is not defined, we will add this location to the forward reference list of this symbol
     // If it does not exist we will add a new entry with this location in its forward reference list
     // During the process of backaptching the relocation entries will have to be added
@@ -518,9 +521,11 @@ void Assembler::resolveSymbol(std::string symbol) {
     // So, when processing symbol values that should be stored in a pool we don't check already existing literals
     // but we put it in pool right away and assign a relocation entry to it, and then, we only use that entry in pool to 
     // resolve all the forward literal symbol references belonging to that symbol
+
+    // TODO - constant
     
     std::vector<Symbol> &symbol_table_ref = *symbol_table;
-    int entry = findSymbol(symbol);
+    int32_t entry = findSymbol(symbol);
     if ( entry > 0 ) {                
         if ( symbol_table_ref[entry].defined ) {
             // If defined, we only have to create a relocation entry
@@ -551,7 +556,7 @@ void Assembler::resolveSymbol(std::string symbol) {
         }
     } else {
         // Symbol does not exist yet, add an undefined symbol entry and forward reference
-        int new_entry = addSymbol(symbol, 0, false, false, 0, 0);
+        int new_entry = addForwardRefSymbol(symbol);
 
         ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
         fr_entry->section = current_section;
@@ -593,7 +598,7 @@ void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Ins
     // that this forward reference is result of symbol used as an operand in an instruction
     // and in case that the section is same it also tells backpatcher which opcode to use
     std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(current_section).symbol_literal_table; 
-    int entry = findSymbol(symbol);
+    int32_t entry = findSymbol(symbol);
     if ( entry > 0 ) {
         if ( type == OPERAND ) {
             // If type is OPERAND add it directly to symbol literal table
@@ -617,7 +622,7 @@ void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Ins
             symbol_table_ref[entry].flink = fr_entry;
         }
     } else {
-        int new_entry = addSymbol(symbol, 0, false, false, 0, 0);
+        int new_entry = addForwardRefSymbol(symbol);
 
         if ( type == OPERAND ) {
             // If type is OPERAND add it directly to symbol literal table
@@ -654,11 +659,12 @@ void Assembler::addDirective(Directive directive) {
             std::vector<Symbol>& symbol_table_ref = *symbol_table;
 
             for ( std::string& symbol : elems ) {
-                int entry = findSymbol(symbol);
+                int32_t entry = findSymbol(symbol);
                 if ( entry > 0 ) {
                     symbol_table_ref[entry].bind = STB_GLOBAL;
                 } else {
-                    addSymbol(symbol, STB_GLOBAL, false, false, 0, 0);
+                    //addSymbol(symbol, STB_GLOBAL, false, false, 0, 0);
+                    addSymbol(symbol, STB_GLOBAL, false, 0, 0);
                 }
             }
             break;
@@ -669,17 +675,19 @@ void Assembler::addDirective(Directive directive) {
             std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
 
             for ( std::string& symbol : elems ) {
-                addSymbol(symbol, STB_GLOBAL, true, false, 0, 0);
+                //addSymbol(symbol, STB_GLOBAL, true, false, 0, 0);
+                addSymbol(symbol, STB_GLOBAL, true, 0, 0);
                 // defined is set to true - This is the difference between extern symbol and forward referenced global symbol
             }
             break;
         }
         case Types::SECTION: {
-            int entry = findSymbol(directive.symbol);
+            int32_t entry = findSymbol(directive.symbol);
             if ( entry > 0 ) {
                 printError("redefinition of section '" + directive.symbol + "'"); 
             } else {
-                int new_entry = addSymbol(directive.symbol, STB_LOCAL, true, true);
+                //int new_entry = addSymbol(directive.symbol, STB_LOCAL, true, true);
+                int new_entry = addSymbol(directive.symbol, STB_LOCAL, true, 0, 0, 0, true);
 
                 // Reset LC and set current_section
                 LC = 0;
@@ -688,7 +696,6 @@ void Assembler::addDirective(Directive directive) {
             break;
         }
         case Types::WORD: {
-            // TODO - u listi mogu biti i literal i simboli
             std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
 
             // Get contents of current section, since we will be inserting words into it
@@ -697,25 +704,22 @@ void Assembler::addDirective(Directive directive) {
             for ( std::string& elem : elems ) {
                 if ( std::isdigit(elem[0]) ) {
                     // Add literal to current section
-                    addWordToCurentSection(std::stoi(elem));
+                    addWordToCurrentSection(std::stoi(elem));
                 } else {
+                    int32_t entry = findSymbol(elem);
+                    if ( entry > 0 ) {
+                        // Check if constant symbol
+                        Symbol& sym = symbol_table->at(entry);
+                        if ( sym.defined && sym.section == -1 && sym.rel == -1 ) {
+                            addWordToCurrentSection(sym.offset);
+                            continue;
+                        }
+                    }
                     resolveSymbol(elem);
                     // Reserve space in section
-                    addWordToCurentSection(0);
+                    addWordToCurrentSection(0);
                 }
-            }/*
-            if ( std::isdigit(elems[0][0]) ) {  // We check it this way since symbols can't start with a number
-                for ( std::string& literal : elems ) {
-                    // For each literal from the list we have to insert 4 bytes into current section and initialize those 4 bytes with this literal value
-                    addWordToCurentSection(std::stoi(literal));
-                }
-            } else {
-                for ( std::string& symbol : elems ) {
-                    resolveSymbol(symbol);
-                    // Reserve space in section
-                    addWordToCurentSection(0);
-                }
-            }*/
+            }
             break;
         }
         case Types::SKIP: {
@@ -738,12 +742,13 @@ void Assembler::addDirective(Directive directive) {
             break;
         }
         case Types::EQU: {
-            // TODO - equ
+            processEqu(directive.symbol, directive.expr);
             break;
         }
         case Types::END: {
             ended = true;
             // Ends the process of assembling
+            resolveTNS();
             startBackpatching();
             resolveLiteralPools();
             makeOutputFiles();
@@ -810,26 +815,34 @@ void Assembler::startBackpatching() {
             for ( ForwardRef_Entry* forward_ref = symbol_table_ref[i].flink; forward_ref; forward_ref = forward_ref->next ) {
                 switch (forward_ref->type) {
                 case REGULAR: {
-                    // regular forward reference to write symbols value into one word
-                    // TODO - constant symbols wont need relocation, but for now it will always produce relocation entry
-                    Reloc_Entry* reloc = new Reloc_Entry();
-                    reloc->addend = 0;
-                    if ( symbol_table_ref[i].bind == STB_GLOBAL ) {
-                        reloc->symbol = i;
+                    // Regular forward reference to write symbols value into one word
+                    if ( symbol_table_ref[i].section == -1 && symbol_table_ref[i].rel == -1 ) {
+                        // Constant symbol, no need for relocation entry
+                        patchWord(forward_ref->section, forward_ref->offset, symbol_table_ref[i].offset);
                     } else {
-                        reloc->symbol = symbol_table_ref[i].section;
-                        reloc->addend += symbol_table_ref[i].offset;
+                        Reloc_Entry* reloc = new Reloc_Entry();
+                        reloc->addend = 0;
+                        if ( symbol_table_ref[i].section == -1 ) {
+                            reloc->symbol = symbol_table_ref[i].rel;
+                            reloc->addend += symbol_table_ref[i].offset;
+                        } else {
+                            if ( symbol_table_ref[i].bind == STB_GLOBAL ) {
+                                reloc->symbol = i;
+                            } else {
+                                reloc->symbol = symbol_table_ref[i].section;
+                                reloc->addend += symbol_table_ref[i].offset;
+                            }
+                        }
+                        reloc->offset = forward_ref->offset;
+                        reloc->section = forward_ref->section;
+                        reloc->type = RELOC_32;
+                        
+                        symbol_table_ref[forward_ref->section].reloc_table->push_back(reloc);
                     }
-                    reloc->offset = forward_ref->offset;
-                    reloc->section = forward_ref->section;
-                    reloc->type = RELOC_32;
-                    
-                    symbol_table_ref[forward_ref->section].reloc_table->push_back(reloc);
-                    //relocation_table->push_back(reloc);
                     break;
                 }
                 case CONSTANT: {
-                    if ( symbol_table_ref[i].section != -1 ) {
+                    if ( symbol_table_ref[i].section != -1 || symbol_table_ref[i].rel != -1 ) {
                         // Again, -1 is placeholder for ABS section
                         // If the symbol is not constant we report an error
                         printError("non constant symbol '" + symbol_table_ref[i].name + "' can't be used as offset in base register addressing"); 
@@ -845,7 +858,7 @@ void Assembler::startBackpatching() {
                     break;
                 }
                 default: {
-                    // All the OPERAND types go here
+                    // All of the OPERAND types go here
                     int32_t offset = (int32_t)symbol_table_ref[i].offset - ((int32_t)forward_ref->offset + 4 );
                     uint32_t opcode = 0;
                     switch(forward_ref->type) {
@@ -890,7 +903,6 @@ void Assembler::startBackpatching() {
                 }
                 }          
             }
-		// TODO - free forward reference structures
 
         }
     }
@@ -916,15 +928,13 @@ void Assembler::resolveLiteralPools() {
 
         for ( auto& entry : *symbol_table_ref[i].literal_table ) {
             // We go through every entry in literal table, add the literal to section and patch all the instructions that reference it
-            addWordToCurentSection(entry.first);
+            addWordToCurrentSection(entry.first);
 
             for ( LiteralRef_Entry* ref = entry.second; ref; ref = ref->next) {
-                // Location of entry for this literal is LC - 4 (because addWordToCurentSection function updates LC)
+                // Location of entry for this literal is LC - 4 (because addWordToCurrentSection function updates LC)
                 int32_t offset = (LC - 4) - ((int32_t)ref->offset + 4);
                 insertDisplacement(current_section, ref->offset, offset);
             }
-
-            // TODO - delete literal tables and references in them in destructor
         }
 
         // Symbol literal table
@@ -932,31 +942,39 @@ void Assembler::resolveLiteralPools() {
         for ( auto& entry : *symbol_table_ref[i].symbol_literal_table ) {
             // We go through every entry in symbol literal table, reserve space for it and add relocation entry
             // then we patch patch all the instructions that reference it
+
+            if ( symbol_table_ref[entry.first].section == -1 && symbol_table_ref[entry.first].rel == - 1) {
+                // Constant symbol, we only have to add it to pool
+                addWordToCurrentSection(symbol_table_ref[entry.first].offset);
+            } else {
             
-            addWordToCurentSection(0);
+                addWordToCurrentSection(0);
+
+                Reloc_Entry* reloc = new Reloc_Entry();
+                reloc->addend = 0;
+                if ( symbol_table_ref[entry.first].section == -1 ) {
+                    reloc->symbol = symbol_table_ref[entry.first].rel;
+                    reloc->addend += symbol_table_ref[entry.first].offset;
+                } else {
+                    if ( symbol_table_ref[entry.first].bind == STB_GLOBAL ) {
+                        reloc->symbol = entry.first;
+                    } else {
+                        reloc->symbol = symbol_table_ref[entry.first].section;
+                        reloc->addend += symbol_table_ref[entry.first].offset;
+                    }
+                }
+                reloc->offset = LC - 4;
+                reloc->section = current_section;
+                reloc->type = RELOC_32;
+
+                symbol_table_ref[current_section].reloc_table->push_back(reloc);
+            }
 
             for ( LiteralRef_Entry* ref = entry.second; ref; ref = ref->next) {
-                // Location of entry for this literal is LC - 4 (because addWordToCurentSection function updates LC)
+                // Location of entry for this literal is LC - 4 (because addWordToCurrentSection function updates LC)
                 int32_t offset = (LC - 4) - ((int32_t)ref->offset + 4);
                 insertDisplacement(current_section, ref->offset, offset);
             }
-
-            Reloc_Entry* reloc = new Reloc_Entry();
-            reloc->addend = 0;
-            if ( symbol_table_ref[entry.first].bind == STB_GLOBAL ) {
-                reloc->symbol = entry.first;
-            } else {
-                reloc->symbol = symbol_table_ref[entry.first].section;
-                reloc->addend += symbol_table_ref[entry.first].offset;
-            }
-            reloc->offset = LC - 4;
-            reloc->section = current_section;
-            reloc->type = RELOC_32;
-
-            symbol_table_ref[current_section].reloc_table->push_back(reloc);
-            //relocation_table->push_back(reloc);
-
-            // TODO - delete literal tables and references in them in destructor
         }
 
     }
@@ -995,80 +1013,6 @@ void Assembler::patchWord(uint32_t section, uint32_t offset, uint32_t word) {
     }
 }
 
-/*
-void Assembler::makeTextFile() {
-
-    std::ofstream fout("output.txt");
-    
-    std::vector<Symbol>& symbol_table_ref = *symbol_table;
-
-    fout << std::endl << "SYMBOL TABLE" << std::endl << "------------------------------------------------" << std::endl;
-
-    fout << std::hex  << std::left;
-
-    // TODO - remove Def column(Its just for testing)
-    fout << std::setw(4) << "Ind" << std::setw(15) << "Name" << std::setw(11) << "Value" << std::setw(5) << "Bind" 
-    << std::setw(8) << "Section" << std::setw(3) << "Def" << std::endl;
-
-    for ( int i = 0; i < symbol_table_ref.size(); i++) {
-        fout << std::setw(4) << i << std::setw(15) << std::left << symbol_table_ref[i].name;
-        fout << std::showbase << std::internal << std::setfill('0');
-        if ( symbol_table_ref[i].offset == 0 ) fout << "0x00000000";
-        else fout << std::setw(10) << symbol_table_ref[i].offset;
-        fout << " ";
-        fout << std::noshowbase << std::setfill(' ') << std::left;
-        fout << std::setw(5) << (symbol_table_ref[i].bind == STB_GLOBAL ? "G" : (symbol_table_ref[i].bind != STB_LOCAL ? "N" : "L" ) );
-        fout << std::setw(8) << symbol_table_ref[i].section << std::setw(3) << ( symbol_table_ref[i].defined == true ? "1" : "0" ) << std::endl;
-    }
-
-    fout << std::endl << "SECTIONS" << std::endl << "------------------------------------------------" << std::endl;
-    fout << std::noshowbase << std::internal << std::setfill('0');
-    
-    for ( int i = 1; i < symbol_table_ref.size(); i++) {
-        if ( symbol_table_ref[i].section != i ) continue;
-        fout << "'" << symbol_table_ref[i].name << "':" << std::endl;
-
-        std::vector<unsigned char>& contents_ref = *symbol_table_ref[i].contents;
-        for ( int j = 0; j < contents_ref.size(); j += 4 ) {
-            if ( !(j%16) ) fout << std::setw(4) << j << ": ";
-            uint32_t word = (uint32_t)contents_ref[j] | ((uint32_t)contents_ref[j+1] << 8) | ((uint32_t)contents_ref[j+2] << 16) | ((uint32_t)contents_ref[j+3] << 24);
-            fout << std::setw(8) << word << " ";
-            if ( j != 0 && j != contents_ref.size() - 1 && !((j+4) % 16) ) fout << std::endl;
-        }
-        fout << std::endl << std::endl;
-    }
-
-    fout << std::endl << "RELOCATION TABLES" << std::endl << "------------------------------------------------" << std::endl;
-    fout << std::showbase << std::setfill(' ') << std::left;
-
-    for ( int i = 1; i < symbol_table_ref.size(); i++) {
-        if ( symbol_table_ref[i].section != i || symbol_table_ref[i].reloc_table->size() == 0 ) continue;
-        fout << "'" << symbol_table_ref[i].name << ".rela':" << std::endl;
-
-        std::vector<Reloc_Entry*>& reloc_table_ref = *symbol_table_ref[i].reloc_table; 
-
-        fout << std::noshowbase << std::setfill(' ') << std::left;
-
-        fout << std::setw(11) << "Offset" << std::setw(5) << "Type" << std::setw(7) << "Symbol" << std::setw(10) << "Addend" << std::endl;
-        for ( int j = 0; j < reloc_table_ref.size(); j++) {
-            fout << std::showbase << std::internal << std::setfill('0');
-            if ( reloc_table_ref[j]->offset == 0 ) fout << "0x00000000";
-            else fout << std::setw(10) << reloc_table_ref[j]->offset;
-            fout << " ";
-            fout << std::noshowbase << std::setfill(' ') << std::left;
-            fout << std::setw(5) << ( reloc_table_ref[j]->type == RELOC_32 ? "RELOC_32" : "R_32S" ); 
-            fout << std::setw(7) << reloc_table_ref[j]->symbol;
-            fout << std::showbase << std::internal << std::setfill('0');
-            if ( reloc_table_ref[j]->addend == 0 ) fout << "0x00000000";
-            else fout << std::setw(10) << reloc_table_ref[j]->addend;
-            fout << std::endl;
-        }
-        fout << std::endl;
-    }
-
-    fout.close();
-}*/
-
 
 void Assembler::makeOutputFiles() {
     Elf32File obj_file(( output_file_name == "" ? "output.o" : output_file_name ), ET_REL);
@@ -1082,4 +1026,87 @@ void Assembler::makeOutputFiles() {
 
     obj_file.makeBinaryFile();
     obj_file.makeTextFile();
+}
+
+
+void Assembler::processEqu(std::string name, Expression* expr) {
+
+    EquDefinition* equ = new EquDefinition(name, expr);
+
+    if ( equ->computable() ) {
+        if ( equ->valid() ) {
+            std::vector<Symbol>& symbol_table_ref = *symbol_table;
+            // Expression consists of only literals and already defined symbols so we can add it to symbol table right here
+            int32_t val = equ->caluclate();
+            int32_t entry = findSymbol(name);
+            uint32_t rel = equ->getRelSymbol();
+            if ( entry > 0 ) {
+                symbol_table_ref[entry].defined = true;
+                symbol_table_ref[entry].offset = val;
+                symbol_table_ref[entry].rel = rel;
+                symbol_table_ref[entry].section = -1;
+            } else {
+                //addSymbol(name, STB_LOCAL, true, false, -1, val, rel);
+                addSymbol(name, STB_LOCAL, true, -1, val, rel);
+            }
+        } else {
+            printError("symbol '" + name + "' defined with equ directive has invalid expression");
+        }
+    } else {
+        // Not computable right now, we add it to TNS
+        TNSEntry* entry = new TNSEntry();
+        entry->def = equ;
+        entry->next = tns;
+        tns = entry;
+    }
+
+}
+
+
+void Assembler::resolveTNS() {
+
+    while(true) {
+        bool stop = true;
+        TNSEntry* temp = tns, *prev = nullptr;
+
+        while(temp) {
+
+            if ( temp->def->computable() ) {
+                if ( temp->def->valid() ) {
+                    std::vector<Symbol>& symbol_table_ref = *symbol_table;
+
+                    int32_t val = temp->def->caluclate();
+                    int32_t entry = findSymbol(temp->def->getName());
+                    uint32_t rel = temp->def->getRelSymbol();
+                    if ( entry > 0 ) {
+                        symbol_table_ref[entry].defined = true;
+                        symbol_table_ref[entry].offset = val;
+                        symbol_table_ref[entry].rel = rel;
+                        symbol_table_ref[entry].section = -1;
+                    } else {
+                        //addSymbol(temp->def->getName(), STB_LOCAL, true, false, -1, val, rel);
+                        addSymbol(temp->def->getName(), STB_LOCAL, true, -1, val, rel);
+                    }
+                    
+                    // Remove this entry
+                    if ( prev ) prev->next = temp->next;
+                    else tns = temp->next;
+                    
+                    stop = false;
+                    break;
+                } else {
+                    printError("symbol '" + temp->def->getName() + "' defined with equ directive has invalid expression");
+                }
+            } 
+
+            prev = temp;
+            temp = temp->next;
+        }
+
+        if ( stop ) break; 
+    }
+
+    if ( tns ) {
+        printError("cyclic dependency detected among .equ symbols");
+    }
 }

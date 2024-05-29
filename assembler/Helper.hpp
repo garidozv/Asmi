@@ -1,5 +1,5 @@
-#ifndef HELPER_HPP
-#define HELPER_HPP
+#ifndef HELPER_H
+#define HELPER_H
 
 
 #include <string>
