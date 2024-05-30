@@ -205,15 +205,18 @@ void Linker::startLinking() {
       if ( ELF32_ST_TYPE(symbol->st_info) == STT_SECTION || symbol->st_shndx == SHN_UNDEF ) continue;
       if ( file_type == ET_EXEC && ELF32_ST_BIND(symbol->st_info) == STB_LOCAL ) continue;
       // EXEC files won't keep local symbols in their symbol table(REL will)
-      Elf32_Shdr* section_header = file->getSectionHeader(symbol->st_shndx);  
-      symbol->st_value += section_header->sh_addr;
+      Elf32_Shdr* section_header;
+      if ( symbol->st_shndx != (Elf32_Half)SHN_ABS ) {
+        section_header = file->getSectionHeader(symbol->st_shndx);  
+        symbol->st_value += section_header->sh_addr;
+      }
       // As we do this, we will also be adding these symbols to output file.s symbol table
       // First we check if symbol was already defined(multiple symbol definitions)
       if ( output_file->getSymbol(string_table_ref[symbol->st_name]) != nullptr ) {
         printError("multiple definitions for symbol '" + string_table_ref[symbol->st_name] + "'");
       }
       output_file->addSymbol(string_table_ref[symbol->st_name], symbol->st_value,
-                             symbol->st_size, symbol->st_info, string_table_ref[section_header->sh_name] );
+        symbol->st_size, symbol->st_info, (symbol->st_shndx != (Elf32_Half)SHN_ABS ? string_table_ref[section_header->sh_name] : "ABS" ) );
     }
   }
 

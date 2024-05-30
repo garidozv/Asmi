@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cerrno>
+#include <thread>
+#include <chrono>
 #include "../elf/Elf32File.hpp"
 #include "ComputerSystem.hpp"
 
@@ -32,17 +34,25 @@ class Emulator {
 
   Memory memory;
   CPU cpu;
+  bool on;
 
+  // Terminal
   termios old_attr;
   int old_flags;
-
   bool out_flag = false;
+
+  static uint32_t timer_periods[];
+  std::thread* timer_thread = nullptr;
 
   void loadMemory();
   void runCPU();
   void printCPUState();
-  void setupTerminal();
+  void setUpTerminal();
   void restoreTerminal();
+  void startTimer();
+  static void timerBody(Memory& memory, CPU& cpu);
+
+  bool isOn() { return on; };
 
   uint32_t fetchInstruction() { 
     uint32_t instr =  memory.readWord(cpu.gpr[PC]);

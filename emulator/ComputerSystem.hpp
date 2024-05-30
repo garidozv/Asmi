@@ -25,12 +25,6 @@ enum {
   INV, TIM, TERM, INT
 };
 
-enum Causes {
-  INVALID_INSTR = 1,
-  TIMER_INT,
-  TERMINAL_INT,
-  SOFTWARE_INT
-};
 
 class Memory {
 

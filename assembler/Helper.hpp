@@ -16,6 +16,7 @@ public:
 	static std::string regToString(int reg);
 	static std::vector<std::string> splitString(std::string str, char delim);
 	static bool checkSymbolicList(std::string* s);
+	static bool isNumber(std::string string);
 };
 
 

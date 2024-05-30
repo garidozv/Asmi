@@ -702,7 +702,7 @@ void Assembler::addDirective(Directive directive) {
             std::vector<unsigned char>& section_contents = *(symbol_table->at(current_section).contents);
             // Iterate through list elements, check whether they are literals or symbols, and call appropriate function(s) based on that
             for ( std::string& elem : elems ) {
-                if ( std::isdigit(elem[0]) ) {
+                if ( Helper::isNumber(elem) ) {
                     // Add literal to current section
                     addWordToCurrentSection(std::stoi(elem));
                 } else {

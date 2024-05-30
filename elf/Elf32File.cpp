@@ -131,6 +131,7 @@ uint32_t Elf32File::addSymbol(std::string name, Elf32_Addr value, Elf32_Word siz
     symbol->st_size = size;
     symbol->st_info = info;
     if ( section == "UND" ) symbol->st_shndx = 0;
+    else if ( section == "ABS" ) symbol->st_shndx = -1;
     else symbol->st_shndx = getSectionIndex(section);
     symbol_table->push_back(symbol);
 

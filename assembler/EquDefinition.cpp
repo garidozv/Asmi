@@ -8,7 +8,7 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
     
     Expression* temp = expr;
     while (temp) {
-      if ( !std::isdigit(temp->symbol[0]) ) {
+      if ( !Helper::isNumber(temp->symbol) ) {
         symbols.insert(temp->symbol);
       }
       temp = temp->next;
@@ -44,7 +44,7 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
 
     Expression* temp = expr;
     while(temp) {
-      if ( !std::isdigit(temp->symbol[0]) ) {
+      if ( !Helper::isNumber(temp->symbol) ) {
         Symbol& sym = symbol_table_ref[assembler->findSymbol(temp->symbol)];
 
         if ( sym.section != -1 || sym.rel != -1 ) {    // Symbols with ABS(-1) section and rel set to -1, are constant equ defined symbols, so we skip them
@@ -107,7 +107,7 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
     Expression* temp = expr;
     
     while(temp) {
-      if ( std::isdigit(temp->symbol[0]) ) {
+      if ( Helper::isNumber(temp->symbol) ) {
         value += std::stoi(temp->symbol);
       } else {
         Symbol& sym = symbol_table_ref[assembler->findSymbol(temp->symbol)];

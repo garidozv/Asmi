@@ -16,9 +16,13 @@ std::string* Helper::concat_strings_with_comma(std::string* s1, std::string* s2)
 bool Helper::checkSymbolicList(std::string* list) {
     std::vector<std::string> elems = splitString(*list, ',');
     for ( std::string elem : elems ) {
-        if ( std::isdigit(elem[0]) ) return false; 
+        if (Helper::isNumber(elem) ) return false; 
     }
     return true;
+}
+
+bool Helper::isNumber(std::string string) {
+    return std::isdigit(string[0]) || string[0] == '-';
 }
 
 

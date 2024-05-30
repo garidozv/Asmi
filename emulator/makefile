@@ -1,9 +1,9 @@
 CXX = g++
-CXXFLAGS = -g -o
+CXXFLAGS = -g  -pthread -o
 FILES = main.cpp Emulator.cpp
 MISC = ../elf/Elf32File.cpp
 
-prog: $(MISC) $(FILES)
+prog: $(FILES) $(MISC) 
 	$(CXX) $(CXXFLAGS) $@ $^
 
 test:

@@ -39,7 +39,7 @@ struct Elf32_Ehdr {
 // Special section indexes in section header tabel
 
 #define SHN_UNDEF           0
-//#define SHN_ABS             1             TODO - change these values
+#define SHN_ABS             -1            
 //#define SHN_COMMON          2
 
 

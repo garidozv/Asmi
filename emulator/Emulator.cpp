@@ -1,6 +1,7 @@
 #include "Emulator.hpp"
 
 Emulator* Emulator::emulator = nullptr;
+uint32_t Emulator::timer_periods[8] = {500, 1000, 1500, 2000, 5000, 10000, 30000, 60000};
 
 Emulator* Emulator::getInstance() {
   if ( emulator == nullptr ) {
@@ -34,7 +35,7 @@ void Emulator::loadMemory() {
 
 }
 
-void Emulator::setupTerminal() {
+void Emulator::setUpTerminal() {
   termios new_attr;
 
   // Save old attributes so we can restore them at the end
@@ -57,10 +58,26 @@ void Emulator::restoreTerminal() {
   //fcntl(STDIN_FILENO, old_flags);
 }
 
+void Emulator::startTimer() {
+  timer_thread = new std::thread(Emulator::timerBody, std::ref(this->memory), std::ref(this->cpu));
+}
+
+void Emulator::timerBody(Memory& memory, CPU& cpu) {
+  uint32_t current_period;
+  Emulator* emulator = Emulator::getInstance();
+
+  while(emulator->isOn()) {
+    current_period = timer_periods[memory.readMMReg(TIM_CFG)];
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(current_period));
+
+    cpu.IR[TIM] = true;
+  }
+}
 
 void Emulator::startEmulating() {
   loadMemory();
-  setupTerminal();
+  setUpTerminal();
   runCPU();
   printCPUState();
   restoreTerminal();
@@ -133,6 +150,8 @@ void Emulator::runCPU() {
   bool running = true;
 
   cpu.gpr[PC] = START_ADDR;
+  memory.writeMMReg(TIM_CFG, 0);
+  on = true;
 
   while(running) {
     //printCPUState();
@@ -318,6 +337,12 @@ void Emulator::runCPU() {
       even if that happens, registers shouldn't be changed in interrupt handler, so it will continue where it left off after returning from handler
     */
 
+
+    // Start timer only after handler address has been set
+    if ( !timer_thread && cpu.csr[HANDLER] != 0 ) {
+      startTimer();
+    }
+
     handleTerminal();
 
     if ( cpu.IR[INT] ) {
@@ -333,5 +358,6 @@ void Emulator::runCPU() {
 
   }
 
-
+  on = false;
+  timer_thread->join();
 }
