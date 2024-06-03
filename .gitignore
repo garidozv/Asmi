@@ -1,9 +1,1 @@
 .vscode
-maintest.cpp
-*.exe
-output.*
-samples
-results
-prog*
-test*
-sample*
