@@ -30,6 +30,6 @@ my_start:
 hello:
   .ascii "Hello World\n\0"
 str:
-  .ascii "What's up?\n\0"
+  .ascii "SS PROJEKAT:(\n\0"
 
 .end

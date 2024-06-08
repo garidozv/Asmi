@@ -15,6 +15,7 @@ class EquDefinition {
   // If Equ symbol is relocatable, this field will hold the index of symbol relative to which it's relocatable, otherwise it will be -1  
   // The reason it is symbol and not section is because of extern symbols
   uint32_t rel_sym = -1;
+  bool extern_flag = false;
 
 public:
 
@@ -29,8 +30,9 @@ public:
   // Should be called after it is determined that expression is computable
   bool valid();
 
-  uint32_t getRelSymbol() { return rel_sym; };
-  std::string getName() { return symbol_name; };
+  uint32_t getRelSymbol() const { return rel_sym; };
+  bool getExternFlag() const { return extern_flag; };
+  std::string getName() const { return symbol_name; };
 
   // Caluclates the expression 
   // If relocatable the value returned represents addend that should be used in relocation entries for this symbol

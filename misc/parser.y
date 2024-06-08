@@ -504,7 +504,6 @@ expression:
 	expr->symbol = *$1;
 	$$ = expr;	
 	delete $1;
-	//std::cout << expr->symbol << std::endl;
 }
 |	LITERAL {
 	string* temp = new string(to_string($1));
@@ -512,7 +511,6 @@ expression:
 	expr->symbol = *temp;
 	$$ = expr;
 	delete temp;
-	//std::cout << expr->symbol << std::endl;
 }
 | SYMBOLIC PLUS expression {
 	struct Expression* expr = new struct Expression();
@@ -530,7 +528,6 @@ expression:
 	$3->sign = Types::PLUS;
 	$$ = expr;
 	delete temp;
-	//std::cout << expr->symbol << std::endl;
 }
 | SYMBOLIC MINUS expression {
 	struct Expression* expr = new struct Expression();
@@ -539,7 +536,6 @@ expression:
 	$3->sign = Types::MINUS;
 	$$ = expr;
 	delete $1;
-	//std::cout << expr->symbol << std::endl;
 }
 | LITERAL MINUS expression {
 	string* temp = new string(to_string($1));
@@ -549,45 +545,11 @@ expression:
 	$3->sign = Types::MINUS;
 	$$ = expr;
 	delete temp;
-	//std::cout << expr->symbol << std::endl;
 }
-
-/*
-list:
-  symbolic_list { $$ = $1; }
-| literal_list { $$ = $1; }
-
-symbolic_list:
-  SYMBOLIC { $$ = $1; }
-| SYMBOLIC COMMA symbolic_list {
-	$$ = Helper::concat_strings_with_comma($1, $3);
-	delete $1;
-	delete $3;
- }
-
-literal_list:
-  LITERAL { $$ = new string(to_string($1)); }
-| LITERAL COMMA literal_list {
-	string* temp = new string(to_string($1));
-	$$ = Helper::concat_strings_with_comma(temp, $3);
-	delete temp;
-	delete $3;
-}*/
 
 
 
 %%
-
-/*
-int main() {
-
-	// TODO - check if there is a new line at the end of the file
-
-  yyparse();
-
-  
-  return 0;
-}*/
 
 
 void yyerror(const char* s) {

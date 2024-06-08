@@ -1,11 +1,13 @@
-ASSEMBLER=../../assembler/prog
-LINKER=../../linker/prog
-EMULATOR=../../emulator/prog
+ASSEMBLER=./assembler
+LINKER=./linker
+EMULATOR=./emulator
 
-${ASSEMBLER} -o main.o main.s
-${ASSEMBLER} -o handler.o handler.s
-${ASSEMBLER} -o isr_timer.o isr_timer.s
-${ASSEMBLER} -o print_string.o print_string.s
+DIR=./tests/test1
+
+${ASSEMBLER} -o main.o ${DIR}/main.s
+${ASSEMBLER} -o handler.o ${DIR}/handler.s
+${ASSEMBLER} -o isr_timer.o ${DIR}/isr_timer.s
+${ASSEMBLER} -o print_string.o ${DIR}/print_string.s
 ${LINKER} -hex \
   -place=code@0x40000000 \
   -place=print@0x80808080 \

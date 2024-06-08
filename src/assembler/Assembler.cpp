@@ -14,26 +14,25 @@ Assembler* Assembler::getInstance() {
 
 Assembler::~Assembler() {
 
-    std::vector<Symbol>& symbol_table_ref = *symbol_table;
-    for ( int i = 0; i < symbol_table_ref.size(); i++ ) {
-        ForwardRef_Entry* curr = symbol_table_ref[i].flink, *next = nullptr;
+    for ( int32_t i = 0; i < symbol_table->size(); i++ ) {
+        ForwardRef_Entry* curr = symbol_table->get(i)->flink, *next = nullptr;
         while ( curr ) {
             next = curr->next;
             delete curr;
             curr = next;
         }
 
-        if ( i == symbol_table_ref[i].section ) {
+        if ( i == symbol_table->get(i)->section ) {
             // Symbol represents section so we have to delete contents vector, literal pools and relocation table
 
-            delete symbol_table_ref[i].contents;
+            delete symbol_table->get(i)->contents;
 
-            for ( Reloc_Entry* reloc : *symbol_table_ref[i].reloc_table ) {
+            for ( Reloc_Entry* reloc : *symbol_table->get(i)->reloc_table ) {
                 delete reloc;
             }
-            delete symbol_table_ref[i].reloc_table;
+            delete symbol_table->get(i)->reloc_table;
 
-            for ( auto entry : *symbol_table_ref[i].literal_table ) {
+            for ( auto entry : *symbol_table->get(i)->literal_table ) {
                 LiteralRef_Entry* curr = entry.second, *next = nullptr;
                 while( curr ) {
                     next = curr->next;
@@ -41,9 +40,9 @@ Assembler::~Assembler() {
                     curr = next;
                 }
             }
-            delete symbol_table_ref[i].literal_table;
+            delete symbol_table->get(i)->literal_table;
 
-            for ( auto entry : *symbol_table_ref[i].symbol_literal_table ) {
+            for ( auto entry : *symbol_table->get(i)->symbol_literal_table ) {
                 LiteralRef_Entry* curr = entry.second, *next = nullptr;
                 while( curr ) {
                     next = curr->next;
@@ -51,8 +50,10 @@ Assembler::~Assembler() {
                     curr = next;
                 }
             }
-            delete symbol_table_ref[i].symbol_literal_table;
+            delete symbol_table->get(i)->symbol_literal_table;
         }
+
+        delete symbol_table->get(i);
     }
 
     delete symbol_table;
@@ -62,7 +63,7 @@ Assembler::~Assembler() {
 Assembler::Assembler() {
     LC = 0;
     current_section = -1;
-    symbol_table = new std::vector<Symbol>();
+    symbol_table = new Table<Symbol*>();
     //relocation_table = new std::vector<Reloc_Entry>();
     // add undefined symbol entry
     addSymbol("undefined", STB_LOCAL, true, 0, 0);
@@ -74,20 +75,19 @@ void Assembler::addLabel(std::string label_name) {
         // Error, a label can not stand on its own, outside of a section
         printError("the label '" + label_name + "' must be placed within a section");
     } else {
-        int32_t entry = findSymbol(label_name);
-        if ( entry >= 0 ) {
-            std::vector<Symbol>& symbol_table_ref = *symbol_table;
-            if ( symbol_table_ref[entry].defined ) {
-                printError("symbol '" + symbol_table_ref[entry].name + "' is already defined");
+        //int32_t entry = symbol_table->get(label_name);
+        if ( symbol_table->exists(label_name) ) {
+            Symbol& sym = *symbol_table->get(label_name);
+            if ( sym.defined ) {
+                printError("symbol '" + sym.name + "' is already defined");
             } else {
                 // Entry for this symbol already exists in symbol table as a result of forward referencing
                 // Set all the fields and mark it as defined, forward references will be resolved at the end
-                std::vector<Symbol>& symbol_table_ref = *symbol_table;
-                symbol_table_ref[entry].section = current_section;
-                symbol_table_ref[entry].offset = LC;
+                sym.section = current_section;
+                sym.offset = LC;
                 // If the forward reference was made because of global directive, we have to preserve the global bind
-                if ( symbol_table_ref[entry].bind != STB_GLOBAL ) symbol_table_ref[entry].bind = STB_LOCAL;
-                symbol_table_ref[entry].defined = true;
+                if ( sym.bind != STB_GLOBAL ) sym.bind = STB_LOCAL;
+                sym.defined = true;
                 // flink and contents are already nullptr
             }
         } else {
@@ -100,52 +100,40 @@ void Assembler::addLabel(std::string label_name) {
     lineno++;
 }
 
-int Assembler::findSymbol(std::string symbol_name) {
-    std::vector<Symbol>& symbol_table_ref = *symbol_table;
-    for ( int i = 0; i < symbol_table_ref.size(); i++ ) {
-        if ( symbol_table_ref[i].name == symbol_name ) return i;
-    }
-    return -1;
-}
-
 void Assembler::addWordToCurrentSection(uint32_t word) {
-    std::vector<unsigned char>& contents_ref = *symbol_table->at(current_section).contents;
-    for ( int i = 0; i < 4; i++) {
+    std::vector<unsigned char>& contents = *symbol_table->get(current_section)->contents;
+    for ( int32_t i = 0; i < 4; i++) {
         // Data is stored in little endian, so we start from lowest byte
         unsigned char byte = word;
         word >>= 8;
-        contents_ref.push_back(byte);
+        contents.push_back(byte);
     }
     LC += 4;
 }
 
-int Assembler::addSymbol(std::string name, uint8_t bind, bool defined, uint32_t section, uint32_t offset, uint32_t rel, bool is_section) {
-    int entry = symbol_table->size();
-
-    Symbol sym;
-    sym.name = name;
-    sym.bind = bind;
-    sym.defined = defined;
-    sym.contents = nullptr;
-    sym.literal_table = nullptr;
-    sym.symbol_literal_table = nullptr;
-    sym.flink = nullptr;
-    sym.rel = rel;
-    sym.section = section;
-    sym.offset = offset;
+uint32_t Assembler::addSymbol(std::string name, uint8_t bind, bool defined, uint32_t section, uint32_t offset, uint32_t rel, bool is_section) {
+    Symbol* sym = new Symbol();
+    sym->name = name;
+    sym->bind = bind;
+    sym->defined = defined;
+    sym->contents = nullptr;
+    sym->literal_table = nullptr;
+    sym->symbol_literal_table = nullptr;
+    sym->flink = nullptr;
+    sym->rel = rel;
+    sym->section = section;
+    sym->offset = offset;
 
     if ( is_section ) {
-        sym.section = entry;
-        sym.offset = 0;
-        sym.contents = new std::vector<uint8_t>();
-        sym.reloc_table = new std::vector<Reloc_Entry*>();
-        sym.literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
-        sym.symbol_literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
+        sym->section = symbol_table->size();
+        sym->offset = 0;
+        sym->contents = new std::vector<uint8_t>();
+        sym->reloc_table = new std::vector<Reloc_Entry*>();
+        sym->literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
+        sym->symbol_literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
     } 
 
-    symbol_table->push_back(sym);
-
-    return entry;
+    return symbol_table->put(sym->name, sym);
 }
 
 void Assembler::addInstruction(Instruction instruction) {
@@ -269,7 +257,7 @@ void Assembler::addInstruction(Instruction instruction) {
             uint32_t ocmod1 = instruction.type == Types::CALL ? 0x21 : 0x38;
             uint32_t ocmod2 = instruction.type == Types::CALL ? 0x20 : 0x30;
             ForwardRef_Type ref_type = instruction.type == Types::CALL ? OPERAND_CALL : OPERAND_JMP;
-            if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+            if ( instruction.op.type == Types::LIT_DIR && checkDisplacementFit(instruction.op.literal) ) {
                 // Literal can fit in 12b
                 // opcode for JMP where literal can fit in D is 0x30000DDD 
                 // opcode for CALL where literal can fit in D is 0x20000DDD where D represents the literal
@@ -297,7 +285,7 @@ void Assembler::addInstruction(Instruction instruction) {
             uint32_t ocmod2 = 0x30 | (instruction.type == Types::BEQ ? 0x1 : ( instruction.type == Types::BNE ? 0x2 : 0x3 ) );
             ForwardRef_Type ref_type = (instruction.type == Types::BEQ ? OPERAND_BEQ : ( instruction.type == Types::BNE ? OPERAND_BNE : OPERAND_BGT ));
 
-            if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+            if ( instruction.op.type == Types::LIT_DIR && checkDisplacementFit(instruction.op.literal) ) {
                 // Literal can fit in 12b
                 // opcode for BTT when literal operand can fit in 12b is 0x3T0XYDDD where X and Y represent the two registers being comapred
                 // and D the literal value
@@ -325,7 +313,7 @@ void Assembler::addInstruction(Instruction instruction) {
             } else {
                 switch (instruction.op.type) {
                 case Types::LIT_DIR: case Types::SYM_DIR: {
-                    if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                    if ( instruction.op.type == Types::LIT_DIR && checkDisplacementFit(instruction.op.literal) ) {
                         // opcode for ST with direct literal addressing mode is 0x8000XDDD where X represents a register being stored
                         // and D the literal address 
                         uint32_t opcode = makeOpcode(0x80, 0, 0, instruction.reg1, instruction.op.literal);
@@ -358,7 +346,7 @@ void Assembler::addInstruction(Instruction instruction) {
                 case Types::REG_LIT: {
                     // opcode for ST with base register addressing mode is 0x80Y0XDDD where X represents a register being stored,
                     // Y the base register and D an immediate literal being added to base register 
-                    if ( !(instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff) ) {
+                    if ( !(checkDisplacementFit(instruction.op.literal)) ) {
                         // Error, immediate value for this type of addressing has to fit in 12 bits
                         printError("literal used as offset in base register addressing must fit in 12 displacement bits");
                     }
@@ -382,7 +370,7 @@ void Assembler::addInstruction(Instruction instruction) {
         case Types::LD: {
             switch (instruction.op.type) {
             case Types::LIT: case Types::SYM: {
-                if ( instruction.op.type == Types::LIT && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                if ( instruction.op.type == Types::LIT && checkDisplacementFit(instruction.op.literal) ) {
                     // opcode for LD with literal immediate addressing mode is 0x91X00DDD where X represents the register being written to
                     // and D the literal being written
                     uint32_t opcode = makeOpcode(0x91, instruction.reg1, 0, 0, instruction.op.literal);
@@ -402,7 +390,7 @@ void Assembler::addInstruction(Instruction instruction) {
             }
             case Types::LIT_DIR: case Types::SYM_DIR: {
 
-                if ( instruction.op.type == Types::LIT_DIR && instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff ) {
+                if ( instruction.op.type == Types::LIT_DIR && checkDisplacementFit(instruction.op.literal) ) {
                     // opcode for LD with direct literal addressing mode when literal can fit in 12b is 0x92X00DDD
                     // where X represents the register being written to and D the literal value
                     uint32_t opcode = makeOpcode(0x92, instruction.reg1, 0, 0, instruction.op.literal);
@@ -444,7 +432,7 @@ void Assembler::addInstruction(Instruction instruction) {
             case Types::REG_LIT: {
                 // opcode for LD with base register addressing mode is 0x92XY0DDD where X represents the register being written to,
                 // Y the base register, and D an immediate literal being added to base register
-                if ( !(instruction.op.literal <= 0x7ff && instruction.op.literal >= ~0x7ff) ) {
+                if ( !(checkDisplacementFit(instruction.op.literal)) ) {
                     printError("literal used as offset in base register addressing must fit in 12 displacement bits");
                 }
                 uint32_t opcode = makeOpcode(0x92, instruction.reg1, instruction.op.reg, 0, instruction.op.literal);
@@ -478,10 +466,9 @@ void Assembler::printError(std::string message) {
 }
 
 void Assembler::checkSymbol(std::string symbol) {
-    std::vector<Symbol> &symbol_table_ref = *symbol_table;
-    int32_t entry = findSymbol(symbol);
-    if ( entry > 0 ) {                
-        if ( symbol_table_ref[entry].defined && symbol_table_ref[entry].section != -1 && symbol_table_ref[entry].rel != -1) {
+    if ( symbol_table->exists(symbol) ) {   
+        Symbol& sym = *symbol_table->get(symbol);             
+        if ( sym.defined && sym.section != -1 && sym.rel != -1) {
             // -1 is just a placeholder, it should check if symbol belongs to ABS section, or in other words, check if symbol is constant
             // Symbol is not constant, so we report an error
             printError("non constant symbol '" + symbol + "' can't be used as offset in base register addressing");
@@ -493,19 +480,19 @@ void Assembler::checkSymbol(std::string symbol) {
             fr_entry->section = current_section;
             fr_entry->offset = LC;
             fr_entry->type = CONSTANT;
-            fr_entry->next = symbol_table_ref[entry].flink;
-            symbol_table_ref[entry].flink = fr_entry;
+            fr_entry->next = sym.flink;
+            sym.flink = fr_entry;
         }
     } else {
         // Symbol does not exist yet, add an undefined symbol entry and forward reference
-        int new_entry = addForwardRefSymbol(symbol);
+        int32_t new_entry = addForwardRefSymbol(symbol);
 
         ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
         fr_entry->section = current_section;
         fr_entry->offset = LC;
         fr_entry->next = nullptr;
         fr_entry->type = CONSTANT;
-        symbol_table_ref[new_entry].flink = fr_entry;
+        symbol_table->get(new_entry)->flink = fr_entry;
     }
 }
 
@@ -521,28 +508,25 @@ void Assembler::resolveSymbol(std::string symbol) {
     // So, when processing symbol values that should be stored in a pool we don't check already existing literals
     // but we put it in pool right away and assign a relocation entry to it, and then, we only use that entry in pool to 
     // resolve all the forward literal symbol references belonging to that symbol
-
-    // TODO - constant
     
-    std::vector<Symbol> &symbol_table_ref = *symbol_table;
-    int32_t entry = findSymbol(symbol);
-    if ( entry > 0 ) {                
-        if ( symbol_table_ref[entry].defined ) {
+    if ( symbol_table->exists(symbol) ) {   
+        Symbol& sym = *symbol_table->get(symbol);
+        uint32_t index = symbol_table->getIndex(symbol);        
+        if ( sym.defined ) {
             // If defined, we only have to create a relocation entry
             Reloc_Entry* reloc = new Reloc_Entry();
             reloc->addend = 0;
-            if ( symbol_table_ref[entry].bind == STB_GLOBAL ) {
-                reloc->symbol = entry;
+            if ( sym.bind == STB_GLOBAL ) {
+                reloc->symbol = index;
             } else {
-                reloc->symbol = symbol_table_ref[entry].section;
-                reloc->addend += symbol_table_ref[entry].offset;
+                reloc->symbol = sym.section;
+                reloc->addend += sym.offset;
             }
             reloc->offset = LC;
             reloc->section = current_section;
             reloc->type = RELOC_32;
             
-            symbol_table_ref[current_section].reloc_table->push_back(reloc);
-            //relocation_table->push_back(reloc);
+            symbol_table->get(current_section)->reloc_table->push_back(reloc);
         } else {
             // Not defined, we dont know the value, so we add it to forward ref list
             // If symbol is not defined even during backpatching, that's an error
@@ -551,39 +535,39 @@ void Assembler::resolveSymbol(std::string symbol) {
             fr_entry->section = current_section;
             fr_entry->offset = LC;
             fr_entry->type = REGULAR;
-            fr_entry->next = symbol_table_ref[entry].flink;
-            symbol_table_ref[entry].flink = fr_entry;
+            fr_entry->next = sym.flink;
+            sym.flink = fr_entry;
         }
     } else {
         // Symbol does not exist yet, add an undefined symbol entry and forward reference
-        int new_entry = addForwardRefSymbol(symbol);
+        uint32_t new_entry = addForwardRefSymbol(symbol);
 
         ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
         fr_entry->section = current_section;
         fr_entry->offset = LC;
         fr_entry->next = nullptr;
         fr_entry->type = REGULAR;
-        symbol_table_ref[new_entry].flink = fr_entry;
+        symbol_table->get(new_entry)->flink = fr_entry;
     }
 }
 
 void Assembler::storeLiteral(uint32_t literal) {
-    std::unordered_map<uint32_t, LiteralRef_Entry*>& literal_table_ref = *symbol_table->at(current_section).literal_table; 
-    if ( literal_table_ref.find(literal) != literal_table_ref.end() ) {
+    std::unordered_map<uint32_t, LiteralRef_Entry*>& literal_table = *symbol_table->get(current_section)->literal_table; 
+    if ( literal_table.find(literal) != literal_table.end() ) {
         // Literal already exist in literal table, add this location to reference list
         LiteralRef_Entry* lr = new LiteralRef_Entry();
         // Since data is stored in little endian, displacement bits will be at the lowest address of this isntructions opcode
         // First byte stores last byte of displacement
         // Second bytes high nibble stores first 4 bits of displacement
         lr->offset = LC;
-        lr->next = literal_table_ref[literal];
-        literal_table_ref[literal] = lr;
+        lr->next = literal_table[literal];
+        literal_table[literal] = lr;
     } else {
         // Literal doesn't exist in literal table, so we have to add it with ref list having this location
         LiteralRef_Entry* lr = new LiteralRef_Entry();
         lr->next = nullptr;
         lr->offset = LC;
-        literal_table_ref[literal] = lr;
+        literal_table[literal] = lr;
     }
 }
 
@@ -597,39 +581,39 @@ void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Ins
     // The type of these forward references is used to singalize backpatcher
     // that this forward reference is result of symbol used as an operand in an instruction
     // and in case that the section is same it also tells backpatcher which opcode to use
-    std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(current_section).symbol_literal_table; 
-    int32_t entry = findSymbol(symbol);
-    if ( entry > 0 ) {
+    std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table = *symbol_table->get(current_section)->symbol_literal_table; 
+    if ( symbol_table->exists(symbol) ) {
+        Symbol& sym = *symbol_table->get(symbol);
+        uint32_t index = symbol_table->getIndex(symbol);
         if ( type == OPERAND ) {
             // If type is OPERAND add it directly to symbol literal table
             LiteralRef_Entry* lr = new LiteralRef_Entry();
             lr->offset = LC;
             lr->next = nullptr;
-            if ( symbol_literal_table_ref.find(entry) == symbol_literal_table_ref.end() ) {
-                symbol_literal_table_ref[entry] = lr; 
+            if ( symbol_literal_table.find(index) == symbol_literal_table.end() ) {
+                symbol_literal_table[index] = lr; 
             } else {
-                lr->next = symbol_literal_table_ref[entry];
-                symbol_literal_table_ref[entry] = lr;
+                lr->next = symbol_literal_table[index];
+                symbol_literal_table[index] = lr;
             }
         } else {            
-            std::vector<Symbol>& symbol_table_ref = *symbol_table;
             ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
             fr_entry->section = current_section;
             fr_entry->offset = LC;
-            fr_entry->next = symbol_table_ref[entry].flink;
+            fr_entry->next = sym.flink;
             fr_entry->type = type; 
             fr_entry->instr = instr;
-            symbol_table_ref[entry].flink = fr_entry;
+            sym.flink = fr_entry;
         }
     } else {
-        int new_entry = addForwardRefSymbol(symbol);
+        uint32_t new_entry = addForwardRefSymbol(symbol);
 
         if ( type == OPERAND ) {
             // If type is OPERAND add it directly to symbol literal table
             LiteralRef_Entry* lr = new LiteralRef_Entry();
             lr->next = nullptr;
             lr->offset = LC;
-            symbol_literal_table_ref[new_entry] = lr;
+            symbol_literal_table[new_entry] = lr;
         } else {  
             ForwardRef_Entry* fr_entry = new ForwardRef_Entry();
             fr_entry->section = current_section;
@@ -637,7 +621,7 @@ void Assembler::storeSymbolLiteral(std::string symbol, ForwardRef_Type type, Ins
             fr_entry->next = nullptr;
             fr_entry->type = type;
             fr_entry->instr = instr;
-            symbol_table->at(new_entry).flink = fr_entry;
+            symbol_table->get(new_entry)->flink = fr_entry;
         }
 
     }
@@ -656,14 +640,11 @@ void Assembler::addDirective(Directive directive) {
             // If symbol is not present in symbol table, we will add an entry with bind set to global and mark it as undefined?
             // In opposite case, we will just set the bind in corresponding entry to global
             std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
-            std::vector<Symbol>& symbol_table_ref = *symbol_table;
 
             for ( std::string& symbol : elems ) {
-                int32_t entry = findSymbol(symbol);
-                if ( entry > 0 ) {
-                    symbol_table_ref[entry].bind = STB_GLOBAL;
+                if ( symbol_table->exists(symbol) ) {
+                    symbol_table->get(symbol)->bind = STB_GLOBAL;
                 } else {
-                    //addSymbol(symbol, STB_GLOBAL, false, false, 0, 0);
                     addSymbol(symbol, STB_GLOBAL, false, 0, 0);
                 }
             }
@@ -671,45 +652,60 @@ void Assembler::addDirective(Directive directive) {
         }
         case Types::EXTERN: {
             // Add a new entry in symbol table for each extern symbol in list
-            // TODO - check if symbol was already defined
             std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
 
             for ( std::string& symbol : elems ) {
-                //addSymbol(symbol, STB_GLOBAL, true, false, 0, 0);
-                addSymbol(symbol, STB_GLOBAL, true, 0, 0);
+                if ( symbol_table->exists(symbol) && symbol_table->get(symbol)->defined ) {
+                    printError("extern symbol '" + symbol + "' can't be defined");
+                } else if (symbol_table->exists(symbol)) {
+                    symbol_table->get(symbol)->bind = STB_GLOBAL;
+                } else {
+                    addSymbol(symbol, STB_GLOBAL, true, 0, 0);
+                } 
                 // defined is set to true - This is the difference between extern symbol and forward referenced global symbol
             }
             break;
         }
         case Types::SECTION: {
-            int32_t entry = findSymbol(directive.symbol);
-            if ( entry > 0 ) {
-                printError("redefinition of section '" + directive.symbol + "'"); 
-            } else {
-                //int new_entry = addSymbol(directive.symbol, STB_LOCAL, true, true);
-                int new_entry = addSymbol(directive.symbol, STB_LOCAL, true, 0, 0, 0, true);
+            if ( symbol_table->exists(directive.symbol) ) {
+                Symbol& sym = *symbol_table->get(directive.symbol);
+                if ( sym.defined ) {
+                    printError("redefinition of section '" + directive.symbol + "'"); 
+                } else {
+                    // Section symbol was forward referenced, so we have to correctly fill its entry in symbol table
+                    sym.defined = true;
+                    sym.bind = STB_LOCAL;
+                    sym.offset = 0;
+                    sym.section = symbol_table->getIndex(directive.symbol);
+                    sym.contents = new std::vector<uint8_t>();
+                    sym.reloc_table = new std::vector<Reloc_Entry*>();
+                    sym.literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
+                    sym.symbol_literal_table = new std::unordered_map<uint32_t, LiteralRef_Entry*>();
 
-                // Reset LC and set current_section
-                LC = 0;
+                    current_section = sym.section;
+                }
+            } else {
+                uint32_t new_entry = addSymbol(directive.symbol, STB_LOCAL, true, 0, 0, 0, true);
+
                 current_section = new_entry; 
             }
+            LC = 0;
             break;
         }
         case Types::WORD: {
             std::vector<std::string> elems = Helper::splitString(directive.symbol, ',');
 
             // Get contents of current section, since we will be inserting words into it
-            std::vector<unsigned char>& section_contents = *(symbol_table->at(current_section).contents);
+            std::vector<unsigned char>& section_contents = *symbol_table->get(current_section)->contents;
             // Iterate through list elements, check whether they are literals or symbols, and call appropriate function(s) based on that
             for ( std::string& elem : elems ) {
                 if ( Helper::isNumber(elem) ) {
                     // Add literal to current section
                     addWordToCurrentSection(std::stoi(elem));
                 } else {
-                    int32_t entry = findSymbol(elem);
-                    if ( entry > 0 ) {
+                    if ( symbol_table->exists(elem) ) {
                         // Check if constant symbol
-                        Symbol& sym = symbol_table->at(entry);
+                        Symbol& sym = *symbol_table->get(elem);
                         if ( sym.defined && sym.section == -1 && sym.rel == -1 ) {
                             addWordToCurrentSection(sym.offset);
                             continue;
@@ -723,8 +719,8 @@ void Assembler::addDirective(Directive directive) {
             break;
         }
         case Types::SKIP: {
-            std::vector<unsigned char>& section_contents = *(symbol_table->at(current_section).contents);
-            for ( int i = 0; i < directive.literal; i++ ) {
+            std::vector<unsigned char>& section_contents = *symbol_table->get(current_section)->contents;
+            for ( int32_t i = 0; i < directive.literal; i++ ) {
                 section_contents.push_back(0);
             }
             LC += directive.literal;
@@ -732,10 +728,10 @@ void Assembler::addDirective(Directive directive) {
         }
         case Types::ASCII: {
             // Does not null terminate the string
-            std::vector<unsigned char>& section_contents = *(symbol_table->at(current_section).contents);
+            std::vector<unsigned char>& section_contents = *symbol_table->get(current_section)->contents;
             std::vector<char> string_vector = processString(directive.symbol);
             // Looks like little endian does not apply here
-            for ( int i = 0; i < string_vector.size() ; i++ ) {
+            for ( int32_t i = 0; i < string_vector.size() ; i++ ) {
                 section_contents.push_back(string_vector[i]);
             }
             LC += string_vector.size();
@@ -753,6 +749,7 @@ void Assembler::addDirective(Directive directive) {
             resolveTNS();
             startBackpatching();
             resolveLiteralPools();
+            fixEqu();
             makeOutputFiles();
             break;
         }
@@ -766,7 +763,7 @@ void Assembler::addDirective(Directive directive) {
 
 std::vector<char> Assembler::processString(std::string string) {
     std::vector<char> res;
-    for(int i = 0; i < string.length(); i++) {
+    for(int32_t i = 0; i < string.length(); i++) {
         if ( string[i] == '\\' && i != string.length() - 1) {
             switch(string[i+1]) {
                 case 'n': res.push_back('\n'); break;
@@ -803,65 +800,66 @@ void Assembler::startBackpatching() {
     // If the type is DISPLACEMENT, we have to chek if symbol is defined, if not we have to report an error, otherwise,
     // we make a relcoation entry for that location
     // If the type is word, we have to add a relocation entry
-    std::vector<Symbol>& symbol_table_ref = *symbol_table;
+
     // We start from 1 because of default section which is in first entry is of no importance here
-    for ( int i = 1; i < symbol_table_ref.size(); i++) {
-        if ( !symbol_table_ref[i].defined ) {
+    for ( int32_t i = 1; i < symbol_table->size(); i++) {
+        Symbol& sym = *symbol_table->get(i);
+        if ( !sym.defined ) {
             // Every symbol present in symbol table(if not global) has to be defined after first pass
             // If it's in symbol table that means that it has been referenced at some point in program
-            printError("symbol '" + symbol_table_ref[i].name + "' is not defined"); 
+            printError("symbol '" + sym.name + "' is not defined"); 
             
         } else {
             // Here, we go through reference list and process them based on forward reference type
             
-            for ( ForwardRef_Entry* forward_ref = symbol_table_ref[i].flink; forward_ref; forward_ref = forward_ref->next ) {
+            for ( ForwardRef_Entry* forward_ref = sym.flink; forward_ref; forward_ref = forward_ref->next ) {
                 switch (forward_ref->type) {
                 case REGULAR: {
                     // Regular forward reference to write symbols value into one word
-                    if ( symbol_table_ref[i].section == -1 && symbol_table_ref[i].rel == -1 ) {
+                    if ( sym.section == -1 && sym.rel == -1 ) {
                         // Constant symbol, no need for relocation entry
-                        patchWord(forward_ref->section, forward_ref->offset, symbol_table_ref[i].offset);
+                        patchWord(forward_ref->section, forward_ref->offset, sym.offset);
                     } else {
                         Reloc_Entry* reloc = new Reloc_Entry();
                         reloc->addend = 0;
-                        if ( symbol_table_ref[i].section == -1 ) {
-                            reloc->symbol = symbol_table_ref[i].rel;
-                            reloc->addend += symbol_table_ref[i].offset;
+                        if ( sym.section == -1 ) {
+                            reloc->symbol = sym.rel;
+                            reloc->addend += sym.offset;
                         } else {
-                            if ( symbol_table_ref[i].bind == STB_GLOBAL ) {
+                            if ( sym.bind == STB_GLOBAL ) {
                                 reloc->symbol = i;
                             } else {
-                                reloc->symbol = symbol_table_ref[i].section;
-                                reloc->addend += symbol_table_ref[i].offset;
+                                reloc->symbol = sym.section;
+                                reloc->addend += sym.offset;
                             }
                         }
                         reloc->offset = forward_ref->offset;
                         reloc->section = forward_ref->section;
                         reloc->type = RELOC_32;
                         
-                        symbol_table_ref[forward_ref->section].reloc_table->push_back(reloc);
+                        symbol_table->get(forward_ref->section)->reloc_table->push_back(reloc);
                     }
                     break;
                 }
                 case CONSTANT: {
-                    if ( symbol_table_ref[i].section != -1 || symbol_table_ref[i].rel != -1 ) {
+                    if ( sym.section != -1 || sym.rel != -1 ) {
                         // Again, -1 is placeholder for ABS section
                         // If the symbol is not constant we report an error
-                        printError("non constant symbol '" + symbol_table_ref[i].name + "' can't be used as offset in base register addressing"); 
+                        printError("non constant symbol '" + sym.name + "' can't be used as offset in base register addressing"); 
                     } else {
                         // Symbol is constant, so we just add it into 12 displacement bits of instruction this reference points to
                         // We also have to check if it can fit in 12b
-                        if ( !(symbol_table_ref[i].offset <= 0x7ff && symbol_table_ref[i].offset >= ~0x7ff) ) {
-                            printError("symbol '" + symbol_table_ref[i].name + "' used as offset in base register addressing must fit in 12 displacement bits"); 
+                        if ( !checkDisplacementFit(sym.offset) ) {
+                            printError("symbol '" + sym.name + "' used as offset in base register addressing must fit in 12 displacement bits"); 
                         } else {
-                            insertDisplacement(forward_ref->section, forward_ref->offset, symbol_table_ref[i].offset);
+                            insertDisplacement(forward_ref->section, forward_ref->offset, sym.offset);
                         }
                     }
                     break;
                 }
                 default: {
                     // All of the OPERAND types go here
-                    int32_t offset = (int32_t)symbol_table_ref[i].offset - ((int32_t)forward_ref->offset + 4 );
+                    int32_t offset = (int32_t)sym.offset - ((int32_t)forward_ref->offset + 4 );
                     uint32_t opcode = 0;
                     switch(forward_ref->type) {
                         // opcode for CALL where offset to symbol can fit in D is 0x20F00DDD where represents D the offset to that symbol
@@ -882,23 +880,22 @@ void Assembler::startBackpatching() {
                     // rather, they will be added to symbol literal table and dealt with later on
                     // This is done because the way real literals and literals that originate from symbols are handled is different
 
-                    // TODO - USE SIGNED TYPES WHERE NEEDED
-                    if ( forward_ref->section == symbol_table_ref[i].section && offset <= 0x7ff && offset >= ~0x7ff) {                     
+                    if ( forward_ref->section == sym.section && checkDisplacementFit(offset)) {                     
                         // Patch the instruction with new opcode
                         patchWord(forward_ref->section, forward_ref->offset, opcode);
                     }
                     else {
                         // The reference and symbol are not in same section or offset can't fit in 12b
                         // We add this reference to symbol literal table with key being referenced symbol
-                        std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table_ref = *symbol_table->at(forward_ref->section).symbol_literal_table;
+                        std::unordered_map<uint32_t, LiteralRef_Entry*>& symbol_literal_table = *symbol_table->get(forward_ref->section)->symbol_literal_table;
 			            LiteralRef_Entry* lr = new LiteralRef_Entry();
                         lr->offset = forward_ref->offset;
                         lr->next = nullptr;
-                        if ( symbol_literal_table_ref.find(i) == symbol_literal_table_ref.end() ) {
-                            symbol_literal_table_ref[i] = lr; 
+                        if ( symbol_literal_table.find(i) == symbol_literal_table.end() ) {
+                            symbol_literal_table[i] = lr; 
                         } else {
-                            lr->next = symbol_literal_table_ref[i];
-                            symbol_literal_table_ref[i] = lr;
+                            lr->next = symbol_literal_table[i];
+                            symbol_literal_table[i] = lr;
                         }
                     }
                     break;
@@ -915,20 +912,20 @@ void Assembler::resolveLiteralPools() {
     // that reference literals from the pool
     // For entries in symbol literal pool we will also have to generate relocation entries
 
-    std::vector<Symbol>& symbol_table_ref = *symbol_table;
-    for ( int i = 1; i < symbol_table_ref.size(); i++ ) {
+    for ( int32_t i = 1; i < symbol_table->size(); i++ ) {
+        Symbol& sym = *symbol_table->get(i);
         // We will know that symbol represents a section if his index is equal to his section field
-        if ( symbol_table_ref[i].section != i ) continue;
+        if ( sym.section != i ) continue;
 
         // Since current_section and LC are not important anymore i will them to store the section(and its LC) whose pools are being added
         // We do this so we can use addWordToCurrentSection function which operates on these valeus
         // LC of the section is its size after first pass
-        LC = symbol_table_ref[i].contents->size();
+        LC = sym.contents->size();
         current_section = i;
 
         // First we deal with regular literal pool
 
-        for ( auto& entry : *symbol_table_ref[i].literal_table ) {
+        for ( auto& entry : *sym.literal_table ) {
             // We go through every entry in literal table, add the literal to section and patch all the instructions that reference it
             addWordToCurrentSection(entry.first);
 
@@ -941,35 +938,35 @@ void Assembler::resolveLiteralPools() {
 
         // Symbol literal table
 
-        for ( auto& entry : *symbol_table_ref[i].symbol_literal_table ) {
+        for ( auto& entry : *sym.symbol_literal_table ) {
             // We go through every entry in symbol literal table, reserve space for it and add relocation entry
             // then we patch patch all the instructions that reference it
-
-            if ( symbol_table_ref[entry.first].section == -1 && symbol_table_ref[entry.first].rel == - 1) {
+            Symbol& literal_sym = *symbol_table->get(entry.first);
+            if ( literal_sym.section == -1 && literal_sym.rel == - 1) {
                 // Constant symbol, we only have to add it to pool
-                addWordToCurrentSection(symbol_table_ref[entry.first].offset);
+                addWordToCurrentSection(literal_sym.offset);
             } else {
             
                 addWordToCurrentSection(0);
 
                 Reloc_Entry* reloc = new Reloc_Entry();
                 reloc->addend = 0;
-                if ( symbol_table_ref[entry.first].section == -1 ) {
-                    reloc->symbol = symbol_table_ref[entry.first].rel;
-                    reloc->addend += symbol_table_ref[entry.first].offset;
+                if ( literal_sym.section == -1 ) {
+                    reloc->symbol = literal_sym.rel;
+                    reloc->addend += literal_sym.offset;
                 } else {
-                    if ( symbol_table_ref[entry.first].bind == STB_GLOBAL ) {
+                    if ( literal_sym.bind == STB_GLOBAL ) {
                         reloc->symbol = entry.first;
                     } else {
-                        reloc->symbol = symbol_table_ref[entry.first].section;
-                        reloc->addend += symbol_table_ref[entry.first].offset;
+                        reloc->symbol = literal_sym.section;
+                        reloc->addend += literal_sym.offset;
                     }
                 }
                 reloc->offset = LC - 4;
                 reloc->section = current_section;
                 reloc->type = RELOC_32;
 
-                symbol_table_ref[current_section].reloc_table->push_back(reloc);
+                symbol_table->get(current_section)->reloc_table->push_back(reloc);
             }
 
             for ( LiteralRef_Entry* ref = entry.second; ref; ref = ref->next) {
@@ -986,7 +983,7 @@ void Assembler::resolveLiteralPools() {
 
 
 void Assembler::insertDisplacement(uint32_t section, uint32_t offset, uint32_t value) {
-    std::vector<unsigned char>& contents_ref = *symbol_table->at(section).contents;
+    std::vector<unsigned char>& contents = *symbol_table->get(section)->contents;
     //                  -------------------------------------------------------------------------------------------------
     // Instriction:     |   OC      |   MOD     |   RegA    |   RegB    |   RegC    |   Disp2   |   Disp1   |   Disp0   |
     //                  -------------------------------------------------------------------------------------------------
@@ -998,32 +995,32 @@ void Assembler::insertDisplacement(uint32_t section, uint32_t offset, uint32_t v
     //                  -------------------------------------------------------------------------------------------------
 
     // Put lower byte of value in first byte at offset which represents lower byte of displacement
-    contents_ref[offset] = (unsigned char)(value & 0xff);
+    contents[offset] = (unsigned char)(value & 0xff);
     // Put remaining nibble of value in lower nibble of byte at offset + 1 which represents highest 4 bits of dispalcement
-    contents_ref[offset + 1] &= 0xf0;
-    contents_ref[offset + 1] |= (unsigned char)((value >> 8) & 0xf);
+    contents[offset + 1] &= 0xf0;
+    contents[offset + 1] |= (unsigned char)((value >> 8) & 0xf);
 }
 
 void Assembler::patchWord(uint32_t section, uint32_t offset, uint32_t word) {
-    std::vector<unsigned char>& contents_ref = *symbol_table->at(section).contents;
+    std::vector<unsigned char>& contents = *symbol_table->get(section)->contents;
 
-    for ( int i = 0; i < 4; i++) {
+    for ( int32_t i = 0; i < 4; i++) {
         // Data is stored in little endian, so we start from lowest byte
         unsigned char byte = word;
         word >>= 8;
-        contents_ref[offset + i] = byte; 
+        contents[offset + i] = byte; 
     }
 }
 
 
 void Assembler::makeOutputFiles() {
     Elf32File obj_file(( output_file_name == "" ? "output.o" : output_file_name ), ET_REL);
-    obj_file.addSymbolTable(symbol_table);
+    obj_file.addSymbolTable(*symbol_table);
     
-    std::vector<Symbol>& symbol_table_ref = *symbol_table;
-    for ( int i = 1; i < symbol_table_ref.size(); i++ ) {
-        if ( i != symbol_table_ref[i].section ) continue;
-        obj_file.addAssemblerSection(symbol_table_ref[i]);
+    for ( int32_t i = 1; i < symbol_table->size(); i++ ) {
+        Symbol& sym = *symbol_table->get(i);
+        if ( i != sym.section ) continue;
+        obj_file.addAssemblerSection(&sym);
     }
 
     obj_file.makeBinaryFile();
@@ -1037,19 +1034,20 @@ void Assembler::processEqu(std::string name, Expression* expr) {
 
     if ( equ->computable() ) {
         if ( equ->valid() ) {
-            std::vector<Symbol>& symbol_table_ref = *symbol_table;
             // Expression consists of only literals and already defined symbols so we can add it to symbol table right here
             int32_t val = equ->caluclate();
-            int32_t entry = findSymbol(name);
             uint32_t rel = equ->getRelSymbol();
-            if ( entry > 0 ) {
-                symbol_table_ref[entry].defined = true;
-                symbol_table_ref[entry].offset = val;
-                symbol_table_ref[entry].rel = rel;
-                symbol_table_ref[entry].section = -1;
+            bool ext_flag = equ->getExternFlag();
+            if ( symbol_table->exists(name) ) {
+                Symbol& sym = *symbol_table->get(name);
+                sym.defined = true;
+                sym.offset = val;
+                sym.rel = rel;
+                sym.section = -1;
+                sym.abs_ext = ext_flag;
             } else {
-                //addSymbol(name, STB_LOCAL, true, false, -1, val, rel);
-                addSymbol(name, STB_LOCAL, true, -1, val, rel);
+                uint32_t index = addSymbol(name, STB_LOCAL, true, -1, val, rel);
+                symbol_table->get(index)->abs_ext = ext_flag;
             }
         } else {
             printError("symbol '" + name + "' defined with equ directive has invalid expression");
@@ -1075,19 +1073,19 @@ void Assembler::resolveTNS() {
 
             if ( temp->def->computable() ) {
                 if ( temp->def->valid() ) {
-                    std::vector<Symbol>& symbol_table_ref = *symbol_table;
-
                     int32_t val = temp->def->caluclate();
-                    int32_t entry = findSymbol(temp->def->getName());
                     uint32_t rel = temp->def->getRelSymbol();
-                    if ( entry > 0 ) {
-                        symbol_table_ref[entry].defined = true;
-                        symbol_table_ref[entry].offset = val;
-                        symbol_table_ref[entry].rel = rel;
-                        symbol_table_ref[entry].section = -1;
+                    bool ext_flag = temp->def->getExternFlag();
+                    if ( symbol_table->exists(temp->def->getName()) ) {
+                        Symbol& sym = *symbol_table->get(temp->def->getName());
+                        sym.defined = true;
+                        sym.offset = val;
+                        sym.rel = rel;
+                        sym.section = -1;
+                        sym.abs_ext = ext_flag;
                     } else {
-                        //addSymbol(temp->def->getName(), STB_LOCAL, true, false, -1, val, rel);
-                        addSymbol(temp->def->getName(), STB_LOCAL, true, -1, val, rel);
+                        uint32_t index = addSymbol(temp->def->getName(), STB_LOCAL, true, -1, val, rel);
+                        symbol_table->get(index)->abs_ext = ext_flag;
                     }
                     
                     // Remove this entry
@@ -1117,7 +1115,46 @@ void Assembler::fixExtern() {
     // Since global can be used as alias for extern, beofre we start resolving anything, we have to check
     // if there are any symbols left that are undefined and GLBOAL(which means they are extern)
     // so we just set the as defined, so they can be treated correctly in the rest of the process of assembling
-    for ( Symbol& sym : *symbol_table ) {
+    for ( int32_t i = 1; i < symbol_table->size(); i++ ) {
+        Symbol& sym = *symbol_table->get(i);
         if ( !sym.defined && sym.bind == STB_GLOBAL ) sym.defined = true;
     }
+}
+
+void Assembler::fixEqu() {
+    // Remove equ symbols relocatable relative to extern symbols from symbol table
+    bool changes;
+    do {   
+        changes = false;
+        for ( int32_t i = 1; i < symbol_table->size(); i++ ) {
+            Symbol& sym = *symbol_table->get(i);
+            if ( sym.abs_ext ) { 
+                removeSymbol(i);
+                changes = true;
+                break;
+            }
+        }
+    } while (changes);
+
+    // I made a mistake of adding new field rel to symbol table entry to store index of section in relation to which equ symbol is relocatable
+    // That should have been stored in section field, so I have to fix it here TODO - fix this
+    for ( int32_t i = 1; i < symbol_table->size(); i++ ) {
+        Symbol& sym = *symbol_table->get(i);
+        if ( sym.section == (uint32_t)SHN_ABS && sym.rel != (uint32_t)-1 ) sym.section = sym.rel;
+    }  
+}
+
+void Assembler::removeSymbol(uint32_t index) {
+    for ( int32_t i = 1; i < symbol_table->size(); i++) {
+        Symbol& sym = *symbol_table->get(i);
+        if ( i == sym.section ) {
+            std::vector<Reloc_Entry*>& reloc_table = *sym.reloc_table;
+            for ( int32_t j = 0; j < reloc_table.size(); j++ ) {
+                if ( (int32_t)reloc_table[j]->symbol > (int32_t)index ) reloc_table[j]->symbol--;
+            }
+        }
+        if ( (int32_t)sym.section > (int32_t)index ) sym.section--;
+        if ( sym.rel != (uint32_t)-1 && (int32_t)sym.rel > (int32_t)index ) sym.rel--;    
+    }
+    symbol_table->remove(symbol_table->get(index)->name);
 }

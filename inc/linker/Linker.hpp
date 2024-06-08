@@ -24,6 +24,11 @@ class Linker {
     exit(-1);
   }
 
+  void mapSections();
+  void updateSymbols();
+  void resolveRelEntries();
+  void updateRelEntries();
+
 protected:
 
   Linker();

@@ -96,7 +96,7 @@ void Emulator::printCPUState() {
   for ( int i = 0; i < GPR_CNT; i++) {
     std::string reg = "r" + std::to_string(i);
     std::cout << std::setw(3) << reg << "=";
-    printHex(std::cout, cpu.gpr[i], 10, true);
+    Helper::printHex(std::cout, cpu.gpr[i], 10, true);
 
     if ( i % 4 != 3 ) std::cout << std::setw(3) << "";
     else std::cout << '\n';
@@ -157,17 +157,14 @@ void Emulator::runCPU() {
   memory.writeMMReg(TIM_CFG, 0);
 
   while(running) {
-    //printCPUState();
-    //printHex(std::cout, cpu.gpr[PC], 10, true);
-    //std::cout << ": ";
+    
     uint32_t instr = fetchInstruction();
     uint8_t oc_mod = extractOcMod(instr);
     uint8_t reg_A = extractRegA(instr);
     uint8_t reg_B = extractRegB(instr);
     uint8_t reg_C = extractRegC(instr);
     uint32_t disp = extractDisplacement(instr);
-    //printHex(std::cout, instr, 10, true);
-    //std::cout << "\n";
+
     switch (oc_mod) {
       case 0x00: {    // halt
         running = false;

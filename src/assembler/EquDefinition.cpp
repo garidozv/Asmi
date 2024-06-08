@@ -26,10 +26,10 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
 
   bool EquDefinition::computable() {
     Assembler* assembler = Assembler::getInstance();
-    std::vector<Symbol>& symbol_table_ref = *assembler->symbol_table;
 
     for ( auto sym : symbols ) {
-      if ( !symbol_table_ref[assembler->findSymbol(sym)].defined ) return false;
+      if ( !assembler->symbol_table->exists(sym) ||
+       (assembler->symbol_table->exists(sym) && !assembler->symbol_table->get(sym)->defined) ) return false;
     }
 
     return true;
@@ -38,21 +38,20 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
   bool EquDefinition::valid() {
     Assembler* assembler = Assembler::getInstance();
     std::unordered_map<uint32_t, int32_t> map;
-    std::vector<Symbol>& symbol_table_ref = *assembler->symbol_table;
 
     uint32_t extern_symbol = -1;
 
     Expression* temp = expr;
     while(temp) {
       if ( !Helper::isNumber(temp->symbol) ) {
-        Symbol& sym = symbol_table_ref[assembler->findSymbol(temp->symbol)];
+        Symbol& sym = *assembler->symbol_table->get(temp->symbol);
 
         if ( sym.section != -1 || sym.rel != -1 ) {    // Symbols with ABS(-1) section and rel set to -1, are constant equ defined symbols, so we skip them
           uint32_t section = sym.section;
 
           // Relocatable Equ defined symbols have the symbol in relation to which they are relocatable in rel field
           if ( sym.section == -1 ) {
-            section = symbol_table_ref[sym.rel].section;
+            section = assembler->symbol_table->get(sym.rel)->section;
           }
 
           // Only one extern symbol can be part of expression(TODO - this wont allow ext - ext which doesn't make sense but is valid)
@@ -61,7 +60,7 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
           // If first(and only) extern symbol, save it, so it can be saved in rel_sym
           if ( section == 0 ) {
             if ( sym.section == -1 ) extern_symbol = sym.rel;
-            else extern_symbol = assembler->findSymbol(sym.name);
+            else extern_symbol = assembler->symbol_table->getIndex(sym.name);
           }
 
           if ( temp->sign == Types::PLUS ) map[section]++;
@@ -87,9 +86,9 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
       // Relocatable in relation to extern symbol, so we have to put it's index in rel_sym
       if ( sec == 0 ) {
         rel_sym = extern_symbol;
+        extern_flag = true;
         // Equ symbol relocatable relative to extern symbol can not be global, so we have to check
-        int entry = assembler->findSymbol(symbol_name);
-        if ( entry > 0 && symbol_table_ref[entry].bind == STB_GLOBAL ) {
+        if ( assembler->symbol_table->exists(symbol_name) && assembler->symbol_table->get(symbol_name)->bind == STB_GLOBAL ) {
           assembler->printError("Equ symbol relocatable relative to extern symbol can not be global");
         }
       }
@@ -101,7 +100,6 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
 
   int32_t EquDefinition::caluclate() {
     Assembler* assembler = Assembler::getInstance();
-    std::vector<Symbol>& symbol_table_ref = *assembler->symbol_table;
 
     int32_t value = 0;
     Expression* temp = expr;
@@ -110,10 +108,10 @@ EquDefinition::EquDefinition(std::string name, Expression* expr) {
       if ( Helper::isNumber(temp->symbol) ) {
         value += std::stoi(temp->symbol);
       } else {
-        Symbol& sym = symbol_table_ref[assembler->findSymbol(temp->symbol)];
+        Symbol& sym = *assembler->symbol_table->get(temp->symbol);
 
-        if ( temp->sign == Types::PLUS ) value += sym.offset;
-        else value -= sym.offset;
+        if ( temp->sign == Types::PLUS ) value += (int32_t)sym.offset;
+        else value -= (int32_t)sym.offset;
       }
 
       temp = temp->next;

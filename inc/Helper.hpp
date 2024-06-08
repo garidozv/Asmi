@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 #include <sstream>
-
+#include <iostream>
+#include <iomanip>
 
 class Helper {
 public:
@@ -17,6 +18,7 @@ public:
 	static std::vector<std::string> splitString(std::string str, char delim);
 	static bool checkSymbolicList(std::string* s);
 	static bool isNumber(std::string string);
+	static void printHex(std::ostream& os, uint32_t number, int width, bool prefix = false);
 };
 
 

@@ -31,10 +31,22 @@ void Linker::addFile(std::string file_name) {
 
 void Linker::startLinking() {
   output_file = new Elf32File(( file_name == "" ? ( file_type == ET_REL ? "output.o" : "output.hex") : file_name ), file_type);
+  
+  mapSections();
+  updateSymbols();
+  // If type is EXEC resolve relocation entries, if REL updated relocation entries add to output file
+  if ( file_type == ET_EXEC ) resolveRelEntries();
+  else updateRelEntries();
+
+  output_file->makeBinaryFile();
+  output_file->makeTextFile();
+  //output_file->makeHexDumpFile();
+}
+
+void Linker::mapSections() {
   // First we have to see how much space will pre mapped sections take up, so we can know whats the starting addres
   // for all the other sections that were not mapepd via place option
 
-  // For now I'll iterate through symbol table of each file to find these, TODO - map symbol names to the entries
 
   // If otuput file has to be relocatable, given mappings wont be used
   // For loop will still be used to initialize memory map with unique section names and caluclate their sizes
@@ -42,22 +54,22 @@ void Linker::startLinking() {
   if ( file_type == ET_REL ) memory_map_p->clear();
 
   for ( Elf32File* file : *files ) {
-    std::vector<std::string>& string_table_ref = *file->getStringTable();
-    for ( Elf32_Sym* symbol : *file->getSymbolTable() ) {
-      if ( ELF32_ST_TYPE(symbol->st_info) != STT_SECTION ) continue;
+    for ( int32_t i = 0; i < file->getSymbolTable()->size(); i++) {
+      Elf32_Sym& symbol = *file->getSymbolTable()->get(i);
+      if ( ELF32_ST_TYPE(symbol.st_info) != STT_SECTION ) continue;
 
-      std::string section_name = string_table_ref[symbol->st_name];
+      std::string section_name = file->getString(symbol.st_name);
       if ( memory_map_p->find(section_name) != memory_map_p->end() ) {
         // Section with this name has been pre mapped
         // and then we 'append' this file's section by increasing the section size in mapping(second elment in value pair)
-        Elf32_Shdr* section_header = file->getSectionHeader(symbol->st_shndx);
+        Elf32_Shdr* section_header = file->getSectionHeader(symbol.st_shndx);
         // Size will be set in section header for now, and updated in symbol table later
         std::pair<uint32_t, uint32_t>& addr_size_pair = memory_map_p->at(section_name);
         //section_header->sh_addr = addr_size_pair.first + addr_size_pair.second;
         addr_size_pair.second += section_header->sh_size;
       } else {
         // Section has not been pre mapped, but we will still keep track of the size of the section with this name
-        Elf32_Shdr* section_header = file->getSectionHeader(symbol->st_shndx);
+        Elf32_Shdr* section_header = file->getSectionHeader(symbol.st_shndx);
         if ( memory_map->find(section_name) != memory_map->end() ) {         
           memory_map->at(section_name).second += section_header->sh_size;
         } else {
@@ -70,6 +82,19 @@ void Linker::startLinking() {
 
   if ( file_type == ET_EXEC ) {
 
+    // Check if any of the pre mapped sections has size euqal to 0(which means that it doesn't exist) and remove it
+    bool changed;
+    do {
+      changed = false;
+      for ( auto& mapping : *memory_map_p ) {
+        if ( mapping.second.second == 0 ) {
+          memory_map_p->erase(mapping.first);
+          changed = true;
+          break;
+        }
+      }
+    } while(changed);
+
     // Now, we have to go through mappings and see if there are any overlappings,
     // and also, find the highest address from which we will be storing remaining sections
 
@@ -78,7 +103,7 @@ void Linker::startLinking() {
     if ( memory_map_p->size() > 1 ) {
       std::vector<std::pair<std::string, std::pair<uint32_t, uint32_t>>> mappings;
     
-      for ( auto mapping : *memory_map_p ) {
+      for ( auto& mapping : *memory_map_p ) {
         mappings.push_back({mapping.first, {mapping.second.first, mapping.second.first + mapping.second.second}});
       }
 
@@ -103,7 +128,6 @@ void Linker::startLinking() {
 
 
     // Assign starting addresses to sections that have not been pre mapped
-    // Probably should make sure that every section is 4B aligned - TODO - don't think this is necessary
 
     /*
       When it comes to alignment the .skip and .ascii directives complicate things a bit since their sizes dont have to be 4B aligned
@@ -112,7 +136,7 @@ void Linker::startLinking() {
     */
 
     for ( auto& mapping : *memory_map ) {
-      //curr_address = (curr_address + 3) & ~(3); // align address TODO - is this needed(because of .skip and .ascii)
+      //curr_address = (curr_address + 3) & ~(3); // align address 
       mapping.second.first = curr_address;
       curr_address += mapping.second.second;
     }
@@ -162,33 +186,34 @@ void Linker::startLinking() {
   for ( auto& mapping : *memory_map ) {
     mapping.second.second = 0;
   }
-  
-  
+}
+
+void Linker::updateSymbols() {
   // All sections have been mapped in memory, next we have to update all of the symbols belonging to those sections
   // and append section contents to the output file seciton
   
   for ( Elf32File* file : *files ) {
-    std::vector<std::string>& string_table_ref = *file->getStringTable();
-    for ( Elf32_Sym* symbol : *file->getSymbolTable() ) {
-      if ( ELF32_ST_TYPE(symbol->st_info) != STT_SECTION ) continue;
+    for ( int32_t i = 0; i < file->getSymbolTable()->size(); i++) {
+      Elf32_Sym& symbol = *file->getSymbolTable()->get(i);
+      if ( ELF32_ST_TYPE(symbol.st_info) != STT_SECTION ) continue;
 
-      std::string section_name = string_table_ref[symbol->st_name];
+      std::string section_name = file->getString(symbol.st_name);
       // The mapping for section with this name has to exist, so we dont check for that
       std::pair<uint32_t, uint32_t>& addr_size_pair = memory_map->at(section_name);
-      Elf32_Shdr* section_header = file->getSectionHeader(symbol->st_shndx);     
+      Elf32_Shdr* section_header = file->getSectionHeader(symbol.st_shndx);     
       
       // Set symbol value and section address in the header
       // Since we will be using address field of section header to update values of the symbols that belong to that section
       // we will have to update it as well
       section_header->sh_addr = addr_size_pair.first + addr_size_pair.second;
-      symbol->st_value = section_header->sh_addr;
+      symbol.st_value = section_header->sh_addr;
       
       // Update size, so the next seciton with same name has the correct start address
       addr_size_pair.second += section_header->sh_size;
 
       // Even in EXEC files, sections still exist(program headers represent segments which consist of section groups)
-      output_file->appendToSection(output_file->getSectionIndex(string_table_ref[section_header->sh_name]),
-                                    file->getSectionContents(symbol->st_shndx));
+      output_file->appendToSection(output_file->getSectionIndex(section_name),
+                                    file->getSectionContents(symbol.st_shndx));
 
     }
   }
@@ -200,32 +225,29 @@ void Linker::startLinking() {
   // GNU linker keeps local symbols in output file's symbol table, we won't be doing this for now
 
   for ( Elf32File* file : *files ) {
-    std::vector<std::string>& string_table_ref = *file->getStringTable();
-    for ( Elf32_Sym* symbol : *file->getSymbolTable() ) {
-      if ( ELF32_ST_TYPE(symbol->st_info) == STT_SECTION || symbol->st_shndx == SHN_UNDEF ) continue;
-      if ( file_type == ET_EXEC && ELF32_ST_BIND(symbol->st_info) == STB_LOCAL ) continue;
+    for ( int32_t i = 0; i < file->getSymbolTable()->size(); i++) {
+      Elf32_Sym& symbol = *file->getSymbolTable()->get(i);
+      if ( ELF32_ST_TYPE(symbol.st_info) == STT_SECTION || symbol.st_shndx == SHN_UNDEF ) continue;
+      if ( file_type == ET_EXEC && ELF32_ST_BIND(symbol.st_info) == STB_LOCAL ) continue;
       // EXEC files won't keep local symbols in their symbol table(REL will)
       Elf32_Shdr* section_header;
-      if ( symbol->st_shndx != (Elf32_Half)SHN_ABS ) {
-        section_header = file->getSectionHeader(symbol->st_shndx);  
-        symbol->st_value += section_header->sh_addr;
+      if ( symbol.st_shndx != (Elf32_Half)SHN_ABS ) {
+        section_header = file->getSectionHeader(symbol.st_shndx);  
+        symbol.st_value += section_header->sh_addr;
       }
       // As we do this, we will also be adding these symbols to output file.s symbol table
       // First we check if symbol was already defined(multiple symbol definitions)
-      if ( output_file->getSymbol(string_table_ref[symbol->st_name]) != nullptr ) {
-        printError("multiple definitions for symbol '" + string_table_ref[symbol->st_name] + "'");
+      if ( output_file->getSymbol(file->getString(symbol.st_name)) != nullptr ) {
+        printError("multiple definitions for symbol '" + file->getString(symbol.st_name) + "'");
       }
-      output_file->addSymbol(string_table_ref[symbol->st_name], symbol->st_value,
-        symbol->st_size, symbol->st_info, (symbol->st_shndx != (Elf32_Half)SHN_ABS ? string_table_ref[section_header->sh_name] : "ABS" ) );
+      output_file->addSymbol(file->getString(symbol.st_name), symbol.st_value,
+        symbol.st_size, symbol.st_info, (symbol.st_shndx != (Elf32_Half)SHN_ABS ? file->getString(section_header->sh_name) : "ABS" ) );
     }
   }
+}
 
-  // If type is EXEC resolve relocation entries, if REL updated relocation entries add to output file
-
-  if ( file_type == ET_EXEC ) {
-    for ( Elf32File* file : *files ) {
-      std::vector<std::string>& string_table_ref = *file->getStringTable();
-      std::vector<Elf32_Sym*>& symbol_table_ref = *file->getSymbolTable();
+void Linker::resolveRelEntries() {
+  for ( Elf32File* file : *files ) {
       for ( int i = 2; i < file->getNumberOfSections(); i++) {
         Elf32_Shdr* header = file->getSectionHeader(i);
         if ( header->sh_type != SHT_RELA || header->sh_size == 0 ) continue;
@@ -233,7 +255,7 @@ void Linker::startLinking() {
         // Besides relocation table, we need the starting address 
         // as well as starting address of section with that name in output file, so we can calculate the index in section contents
         Elf32_Shdr* input_section_header = file->getSectionHeader(header->sh_link);
-        std::string section_name = string_table_ref[input_section_header->sh_name]; // Name of the section tha this relocation table belongs to
+        std::string section_name = file->getString(input_section_header->sh_name); // Name of the section tha this relocation table belongs to
         Elf32_Shdr* output_section_header = output_file->getSectionHeader(section_name);
         uint32_t addr = input_section_header->sh_addr;
         uint32_t base_addr = output_section_header->sh_addr;
@@ -241,8 +263,21 @@ void Linker::startLinking() {
         uint32_t offset = addr - base_addr;
 
         for ( Elf32_Rela* reloc: reloc_table_ref) {
+          Elf32_Sym& in_sym = *file->getSymbolTable()->get(ELF32_R_SYM(reloc->r_info));
           // First we get the symbol name from this file's symbol table
-          std::string symbol_name = string_table_ref[symbol_table_ref[ELF32_R_SYM(reloc->r_info)]->st_name];
+          std::string symbol_name = file->getString(in_sym.st_name);
+
+          // We have to check if the symbol represents section, if it does, that means that we might have to update addend
+          // because the sections offset might have changed if it was merged with another section of the same name
+
+          if ( ELF32_ST_TYPE(in_sym.st_info) == STT_SECTION ) {
+            // Calculate the offset from section with same name in output file
+            Elf32_Shdr* input_rel_section_header = file->getSectionHeader(symbol_name);
+            Elf32_Shdr* output_rel_section_header = output_file->getSectionHeader(symbol_name);
+            uint32_t addend_offset = input_rel_section_header->sh_addr - output_rel_section_header->sh_addr;
+            reloc->r_addend += addend_offset;
+          }
+
           // Next, using the symbol name, we find symbol value in output file's symbol table
           Elf32_Sym* symbol = output_file->getSymbol(symbol_name);
           if ( symbol == nullptr ) {
@@ -256,10 +291,10 @@ void Linker::startLinking() {
         }
       }
     }
-  } else {  // ET_REL
-    for ( Elf32File* file : *files ) {
-      std::vector<std::string>& string_table_ref = *file->getStringTable();
-      std::vector<Elf32_Sym*>& symbol_table_ref = *file->getSymbolTable();
+}
+
+void Linker::updateRelEntries() {
+  for ( Elf32File* file : *files ) {
       for ( int i = 2; i < file->getNumberOfSections(); i++) {
         Elf32_Shdr* header = file->getSectionHeader(i);
         if ( header->sh_type != SHT_RELA || header->sh_size == 0 ) continue;
@@ -267,7 +302,7 @@ void Linker::startLinking() {
         // Besides relocation table, we need to starting address 
         // as well as starting address of section with that name in output file, so we can determine the index in section contents
         Elf32_Shdr* input_section_header = file->getSectionHeader(header->sh_link);
-        std::string section_name = string_table_ref[input_section_header->sh_name]; // Name of the section tha this relocation table belongs to
+        std::string section_name = file->getString(input_section_header->sh_name); // Name of the section tha this relocation table belongs to
         Elf32_Shdr* output_section_header = output_file->getSectionHeader(section_name);
         // In this case, offset will be the address itself(since base address is always 0)
         uint32_t offset = input_section_header->sh_addr;
@@ -280,11 +315,24 @@ void Linker::startLinking() {
           Elf32_Rela* new_reloc = new Elf32_Rela();
           new_reloc->r_addend = reloc->r_addend;
 
-          Elf32_Sym* symbol = symbol_table_ref[ELF32_R_SYM(reloc->r_info)];
-          uint32_t symbol_index = output_file->getSymbolIndex(string_table_ref[symbol->st_name]);
+          Elf32_Sym* symbol = file->getSymbolTable()->get(ELF32_R_SYM(reloc->r_info));
+
+          // We have to check if the symbol represents section, if it does, that means that we might have to update addend
+          // because the sections offset might have changed if it was merged with another section of the same name
+
+          if ( ELF32_ST_TYPE(symbol->st_info) == STT_SECTION ) {
+            std::string symbol_name = file->getString(symbol->st_name);
+            // Calculate the offset from section with same name in output file
+            Elf32_Shdr* input_rel_section_header = file->getSectionHeader(symbol_name);
+            Elf32_Shdr* output_rel_section_header = output_file->getSectionHeader(symbol_name);
+            uint32_t addend_offset = input_rel_section_header->sh_addr - output_rel_section_header->sh_addr;
+            reloc->r_addend += addend_offset;
+          }
+
+          uint32_t symbol_index = output_file->getSymbolIndex(file->getString(symbol->st_name));
           if ( symbol_index == -1 ) {
             // Undefined symbol, so we add it in symbol table(this is not error since this is REL file)
-            symbol_index = output_file->addSymbol(string_table_ref[symbol->st_name], 0, 0, ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), section_name);
+            symbol_index = output_file->addSymbol(file->getString(symbol->st_name), 0, 0, ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), section_name);
           }
           new_reloc->r_info = ELF32_R_INFO(symbol_index, ELF32_R_TYPE(reloc->r_info));
           new_reloc->r_offset = reloc->r_offset + offset;
@@ -295,11 +343,6 @@ void Linker::startLinking() {
         }
       }
     }
-  }
-
-  output_file->makeBinaryFile();
-  output_file->makeTextFile();
-  //output_file->makeHexDumpFile();
 }
 
 

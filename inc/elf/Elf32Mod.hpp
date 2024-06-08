@@ -84,8 +84,6 @@ struct Elf32_Shdr {
 #define SHF_MASKPROC        0xf0000000
 
 
-// TODO - sh_link and sh_info interpretation; Special sections
-
 /*
     A string table index refers to starting byte in the string table section
     First byte, at index 0, and last byte, always hold null characters
@@ -99,8 +97,6 @@ struct Elf32_Sym {
     Elf32_Addr          st_value;   // Symbols value
     Elf32_Word          st_size;    // Symbols size(will probably only be 0)
     unsigned char       st_info;    // Symbols type and binding attributes
-    //unsigned char       st_other;   // Wont be used, but will keep it because of the alignment 
-    // TODO - index in symbol table should have nothing to do with section index!!!
     Elf32_Half          st_shndx;   // Section index(not section header index like in original Elf)     
 };
 
@@ -163,7 +159,6 @@ struct Elf32_Rela {
 #define RELOC_32        0
 
 // Elf32 program header structure
-// TODO - check this
 
 struct Elf32_Phdr {
     Elf32_Word      p_type;
@@ -183,21 +178,7 @@ struct Elf32_Phdr {
 
 #define PT_NULL         0
 #define PT_LOAD         1
-/*
-#define PT_DYNAMIC      2
-#define PT_INTERP       3
-#define PT_NOTE         4
-#define PT_SHLIB        5
-#define PT_PHDR         6*/
-
-// Segment flag bit used for Elf32 program header member p_flags
-/*
-#define PF_X            0x1
-#define PF_W            0x2
-#define PF_R            0x4
-#define PF_MASKPROC     0xf0000000*/
 
 
-// TODO - add Dynamic section definitions if needed
 
 #endif

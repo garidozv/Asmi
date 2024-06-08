@@ -32,23 +32,23 @@ struct TNSEntry {
 // Depending on the operand type, some of the elements will be used ( literal and symbol could be in an union )
 struct Operand {
     Types::Operand_Type type;
-    int literal;
+    int32_t literal;
     std::string symbol;
-    int reg = -1;
+    int8_t reg = -1;
 };
 
 // Depending on the instruction type, the appropriate(if any) operand will be used
 struct Instruction {
     Types::Instruction_Type type;
-    int reg1 = -1;
-    int reg2 = -1;
+    int8_t reg1 = -1;
+    int8_t reg2 = -1;
     Operand op;
 };
 
 
 struct Directive {
     Types::Directive_Type type;
-    int literal;
+    int32_t literal;
     std::string symbol;
     Expression* expr;
 };
@@ -79,11 +79,11 @@ struct LiteralRef_Entry {
 // I won't be using PC relocation types, since all references to symbols in different sections will use absolute address
 // and references in same section will be resolved by assembler and wont have relocation entry
 struct Reloc_Entry {
-    uint32_t section;
+    uint32_t section;   // not needed
     uint32_t offset;
     uint8_t type;
     uint32_t symbol;
-    uint32_t addend;
+    int32_t addend;
 };
 
 struct Symbol {
@@ -93,12 +93,14 @@ struct Symbol {
     uint8_t bind;
     bool defined;
     ForwardRef_Entry* flink;
+
     std::vector<uint8_t>* contents;   // Contents of a section if the symbol represents one
     std::vector<Reloc_Entry*>* reloc_table; // Relocation table 
     std::unordered_map<uint32_t, LiteralRef_Entry*>* literal_table; // Literal table of a section if symbol represents one
     std::unordered_map<uint32_t, LiteralRef_Entry*>* symbol_literal_table; // Table of literals originated from symbols - keys are symbol indexes
 
     uint32_t rel;   // for equ symbols
+    bool abs_ext = false;   // for equ symbols that are relocataable relative to extern symbol(they should not be in symbol table after assembling)
 };
 
 

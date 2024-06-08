@@ -104,19 +104,6 @@ public:
     return (instr >> REG_C_OFFSET) & NIBBLE_MASK;
   }
 
-  void printHex(std::ostream& os, uint32_t number, int width, bool prefix = false) {
-      std::ios old_state(nullptr);
-      old_state.copyfmt(os);
-
-      if ( prefix ) os << std::showbase;
-      os << std::hex << std::internal << std::setfill('0');
-
-      // We do this because showbase wont work if number is 0
-      if ( prefix && number == 0 ) os << "0x" << std::setw(width - 2) << "";
-      else os << std::setw(width) << number;
-
-      os.copyfmt(old_state);
-  }
 };
 
 #endif
